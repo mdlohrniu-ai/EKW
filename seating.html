@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Seating chart</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 20px; color: #1a1a1a; }
+  *, *::before, *::after { box-sizing: border-box; }
+  .pip { width:9px; height:9px; border-radius:50%; border:1px solid #999; }
+  .pip-active { cursor:pointer; }
+  .pip-locked { cursor:default; opacity:0.5; }
+  button { font-size: 14px; padding: 8px 14px; cursor: pointer; margin-right: 8px; margin-bottom: 8px; }
+  .namebtn { background:none; border:1px solid #ccc; border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; margin:3px; }
+  .desk-wrap { position: relative; }
+  .desk-toggle { position:absolute; top:-8px; right:-8px; opacity:0; transition:opacity .15s; cursor:pointer; background:#fff; border:1px solid #999; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; z-index:1; }
+  .desk-wrap:hover .desk-toggle { opacity:1; }
+  #stat { font-size: 13px; color: #555; margin: 8px 0; }
+  #lateList { margin-bottom: 12px; }
+  #grid { display:grid; grid-template-columns:repeat(4,172px); gap:14px 10px; align-items:start; }
+</style>
+</head>
+<body>
+<h2 style="font-size:18px;">Seating chart</h2>
+<div>
+  <button id="randomizeBtn">Randomize seating</button>
+  <button id="compactBtn">Compact after absences</button>
+  <button id="callBtn">Call random student</button>
+  <button id="refreshBtn">Refresh</button>
+</div>
+<div id="stat"></div>
+<div id="lateList"></div>
+<div style="font-size:12px;color:#777;margin-bottom:10px;">click a name to mark absent. left-click the next open pip for volunteered, right-click for randomly called. hover a desk to block it</div>
+<div style="font-size:11px;color:#999;margin-bottom:8px;">front of class, reading order</div>
+<div id="grid"></div>
+
+<script>
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
+const COLUMNS = 4;
+const POLL_MS = 15000;
+
+let roster = [];
+let state = { seats: [], absent: [], blocked: [], pips: {}, lastPicked: null, activePairCount: 0 };
+let lastMoved = 0;
+
+async function callAction(action, params) {
+  const qs = new URLSearchParams(Object.assign({ action: action }, params || {}));
+  const res = await fetch(WEBAPP_URL + '?' + qs.toString());
+  return res.json();
+}
+
+function applyStateResponse(data) {
+  if (data.state) { state = data.state; lastMoved = data.moved || 0; }
+  else { state = data; }
+  render();
+}
+
+async function loadRoster() {
+  roster = await callAction('getRoster');
+}
+
+async function loadState() {
+  const data = await callAction('getState');
+  applyStateResponse(data);
+}
+
+function rosterName(id) {
+  const r = roster.find(function (x) { return x.id === id; });
+  return r ? r.name : id;
+}
+
+function pipsFor(id) {
+  return state.pips[id] || ['', '', '', '', ''];
+}
+
+function pipCount(id) { return pipsFor(id).filter(function (p) { return p; }).length; }
+
+function pipColor(v) {
+  if (v === 'green') return '#3b6d11';
+  if (v === 'orange') return '#854f0b';
+  return 'transparent';
+}
+
+async function toggleAbsent(id) { applyStateResponse(await callAction('toggleAbsent', { studentId: id })); }
+async function markArrived(id) { applyStateResponse(await callAction('markArrived', { studentId: id })); }
+async function toggleBlocked(p) { applyStateResponse(await callAction('toggleBlocked', { pairIndex: p })); }
+async function addPip(id, color) { applyStateResponse(await callAction('addPip', { studentId: id, color: color })); }
+async function removeLastPip(id) { applyStateResponse(await callAction('removeLastPip', { studentId: id })); }
+async function randomCall() { applyStateResponse(await callAction('randomCall')); }
+async function randomizeSeating() { applyStateResponse(await callAction('randomizeSeating')); }
+async function compactSeating() { applyStateResponse(await callAction('compactSeating')); }
+
+function buildChip(id) {
+  const el = document.createElement('div');
+  const isAbsent = state.absent.indexOf(id) !== -1;
+  const isPicked = state.lastPicked === id;
+  const filled = pipCount(id);
+  el.style.cssText = 'width:78px;height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2px;overflow:hidden;flex-shrink:0;';
+  el.style.background = isAbsent ? '#eee' : '#0c447c';
+  el.style.color = isAbsent ? '#888' : '#e6f1fb';
+  el.style.border = isPicked ? '2px solid #a32d2d' : '2px solid transparent';
+  const nameDiv = document.createElement('div');
+  nameDiv.style.cssText = 'cursor:pointer;';
+  nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>';
+  nameDiv.onclick = function () { toggleAbsent(id); };
+  el.appendChild(nameDiv);
+  const pipRow = document.createElement('div');
+  pipRow.style.cssText = 'display:flex;gap:2px;margin-top:3px;';
+  pipsFor(id).forEach(function (v, k) {
+    const pip = document.createElement('div');
+    pip.style.background = pipColor(v);
+    if (k === filled - 1) {
+      pip.className = 'pip pip-active';
+      pip.onclick = function (e) { e.stopPropagation(); removeLastPip(id); };
+      pip.oncontextmenu = function (e) { e.preventDefault(); e.stopPropagation(); removeLastPip(id); };
+    } else if (k === filled && filled < 5) {
+      pip.className = 'pip pip-active';
+      pip.onclick = function (e) { e.stopPropagation(); addPip(id, 'green'); };
+      pip.oncontextmenu = function (e) { e.preventDefault(); e.stopPropagation(); addPip(id, 'orange'); };
+    } else {
+      pip.className = 'pip pip-locked';
+    }
+    pipRow.appendChild(pip);
+  });
+  el.appendChild(pipRow);
+  return el;
+}
+
+function emptySlot() {
+  const d = document.createElement('div');
+  d.style.cssText = 'width:78px;height:70px;border:1px dashed #ccc;flex-shrink:0;';
+  return d;
+}
+
+function blankSpacer() {
+  const d = document.createElement('div');
+  d.style.cssText = 'width:78px;height:70px;flex-shrink:0;';
+  return d;
+}
+
+function buildRowFromIds(ids) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:4px;';
+  row.appendChild(ids[0] !== undefined ? buildChip(ids[0]) : emptySlot());
+  row.appendChild(ids[1] !== undefined ? buildChip(ids[1]) : emptySlot());
+  return row;
+}
+
+function buildTrioBottomRow(ids) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:4px;';
+  row.appendChild(buildChip(ids[0]));
+  row.appendChild(blankSpacer());
+  return row;
+}
+
+function toggleBtn(p, isBlocked) {
+  const b = document.createElement('div');
+  b.className = 'desk-toggle';
+  if (isBlocked) { b.style.opacity = '1'; }
+  b.textContent = isBlocked ? '+' : '×';
+  b.title = isBlocked ? 'unblock this desk' : 'block this desk';
+  b.onclick = function (e) { e.stopPropagation(); toggleBlocked(p); };
+  return b;
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  const totalPairs = state.seats.length / 2;
+  const deskGroups = [];
+  for (let p = 0; p < totalPairs; p++) {
+    const a = state.seats[p * 2], b = state.seats[p * 2 + 1];
+    const occs = [];
+    if (a && a.occ !== null && state.absent.indexOf(a.occ) === -1) occs.push(a.occ);
+    if (b && b.occ !== null && state.absent.indexOf(b.occ) === -1) occs.push(b.occ);
+    deskGroups.push(occs);
+  }
+  let lonelyIdx = -1;
+  for (let p = totalPairs - 1; p >= 0; p--) {
+    if (state.blocked.indexOf(p) === -1 && deskGroups[p].length === 1) { lonelyIdx = p; break; }
+  }
+  let mergeWithIdx = -1;
+  if (lonelyIdx >= 0) {
+    const front = lonelyIdx - COLUMNS;
+    if (front >= 0 && state.blocked.indexOf(front) === -1 && deskGroups[front].length === 2) { mergeWithIdx = front; }
+    else {
+      const prev = lonelyIdx - 1;
+      if (prev >= 0 && state.blocked.indexOf(prev) === -1 && deskGroups[prev].length === 2) { mergeWithIdx = prev; }
+    }
+  }
+  for (let p = 0; p < totalPairs; p++) {
+    if (p === lonelyIdx && mergeWithIdx >= 0) continue;
+    const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'desk-wrap';
+    wrapper.style.gridColumn = String(col + 1);
+    if (state.blocked.indexOf(p) !== -1) {
+      wrapper.style.gridRow = String(row + 1);
+      wrapper.style.cssText += ';border:2px dashed #ccc;border-radius:8px;padding:4px;background:#fafafa;opacity:0.5;';
+      wrapper.appendChild(buildRowFromIds([]));
+      wrapper.appendChild(toggleBtn(p, true));
+    } else if (p === mergeWithIdx) {
+      wrapper.style.gridRow = (row + 1) + ' / span 2';
+      wrapper.style.cssText += ';border:2px solid #3b6d11;border-radius:8px;display:flex;flex-direction:column;gap:14px;padding:2px 0;';
+      const topInner = document.createElement('div');
+      topInner.style.padding = '4px';
+      topInner.appendChild(buildRowFromIds(deskGroups[p]));
+      const bottomInner = document.createElement('div');
+      bottomInner.style.padding = '4px';
+      bottomInner.appendChild(buildTrioBottomRow(deskGroups[lonelyIdx]));
+      wrapper.appendChild(topInner);
+      wrapper.appendChild(bottomInner);
+      wrapper.appendChild(toggleBtn(p, false));
+    } else {
+      wrapper.style.gridRow = String(row + 1);
+      wrapper.style.cssText += ';border:2px solid #3b6d11;border-radius:8px;padding:4px;';
+      wrapper.appendChild(buildRowFromIds(deskGroups[p]));
+      wrapper.appendChild(toggleBtn(p, false));
+    }
+    grid.appendChild(wrapper);
+  }
+  const presentCount = roster.filter(function (r) { return state.absent.indexOf(r.id) === -1; }).length;
+  document.getElementById('stat').textContent = roster.length + ' on roster, ' + state.absent.length + ' absent, ' + presentCount + ' present, ' + state.blocked.length + ' desks blocked, last compact moved ' + lastMoved;
+  const seatedIds = state.seats.filter(function (s) { return s.occ !== null; }).map(function (s) { return s.occ; });
+  const unseatedAbsent = roster.filter(function (r) { return state.absent.indexOf(r.id) !== -1 && seatedIds.indexOf(r.id) === -1; });
+  const lateList = document.getElementById('lateList');
+  lateList.innerHTML = '';
+  if (unseatedAbsent.length) {
+    const label = document.createElement('span');
+    label.style.cssText = 'font-size:12px;color:#888;';
+    label.textContent = 'not seated: ';
+    lateList.appendChild(label);
+    unseatedAbsent.forEach(function (r) {
+      const btn = document.createElement('button');
+      btn.className = 'namebtn';
+      btn.textContent = r.name;
+      btn.onclick = function () { markArrived(r.id); };
+      lateList.appendChild(btn);
+    });
+  }
+}
+
+document.getElementById('randomizeBtn').onclick = randomizeSeating;
+document.getElementById('compactBtn').onclick = compactSeating;
+document.getElementById('callBtn').onclick = randomCall;
+document.getElementById('refreshBtn').onclick = loadState;
+
+(async function init() {
+  await loadRoster();
+  await loadState();
+  setInterval(loadState, POLL_MS);
+})();
+</script>
+</body>
+</html>
