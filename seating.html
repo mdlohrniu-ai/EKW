@@ -24,6 +24,13 @@
 </style>
 </head>
 <body>
+<div id="loginGate" style="max-width:340px;margin:80px auto;text-align:center;">
+  <h2 style="font-size:18px;">Seating chart login</h2>
+  <input type="password" id="pwInput" placeholder="Enter password" style="font-size:16px;padding:10px;width:100%;box-sizing:border-box;">
+  <button id="pwSubmit" style="width:100%;margin-top:8px;">Enter</button>
+  <div id="pwError" style="color:#c0392b;margin-top:8px;"></div>
+</div>
+<div id="appContent" style="display:none;flex-direction:column;height:100%;">
 <div id="header">
 <h2 style="font-size:18px;margin:0 0 10px;">Seating chart</h2>
 <div>
@@ -39,6 +46,7 @@
 <div style="font-size:11px;color:#999;margin-bottom:6px;">front of class, reading order</div>
 </div>
 <div id="gridWrapper"><div id="grid"></div></div>
+</div>
 
 <script>
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
@@ -48,12 +56,33 @@ const POLL_MS = 15000;
 let roster = [];
 let state = { seats: [], absent: [], blocked: [], pips: {}, lastPicked: null, activePairCount: 0 };
 let lastMoved = 0;
+let savedPassword = localStorage.getItem('seatingPassword') || '';
 
 async function callAction(action, params) {
-  const qs = new URLSearchParams(Object.assign({ action: action }, params || {}));
+  const qs = new URLSearchParams(Object.assign({ action: action, password: savedPassword }, params || {}));
   const res = await fetch(WEBAPP_URL + '?' + qs.toString());
   return res.json();
 }
+
+async function tryLogin(pw) {
+  const res = await fetch(WEBAPP_URL + '?action=getState&password=' + encodeURIComponent(pw));
+  const data = await res.json();
+  return !data.error;
+}
+
+document.getElementById('pwSubmit').onclick = async function () {
+  const pw = document.getElementById('pwInput').value;
+  const ok = await tryLogin(pw);
+  if (ok) {
+    savedPassword = pw;
+    localStorage.setItem('seatingPassword', pw);
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('appContent').style.display = 'flex';
+    boot();
+  } else {
+    document.getElementById('pwError').textContent = 'Wrong password, try again.';
+  }
+};
 
 function applyStateResponse(data) {
   if (data.state) { state = data.state; lastMoved = data.moved || 0; }
@@ -281,10 +310,18 @@ document.getElementById('resetBtn').onclick = async function () {
   }
 };
 
-(async function init() {
+async function boot() {
   await loadRoster();
   await loadState();
   setInterval(loadState, POLL_MS);
+}
+
+(async function initLogin() {
+  if (savedPassword && await tryLogin(savedPassword)) {
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('appContent').style.display = 'flex';
+    boot();
+  }
 })();
 </script>
 </body>
