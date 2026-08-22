@@ -27,6 +27,7 @@
   <button id="compactBtn">Compact after absences</button>
   <button id="callBtn">Call random student</button>
   <button id="refreshBtn">Refresh</button>
+  <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
 </div>
 <div id="stat"></div>
 <div id="lateList"></div>
@@ -245,6 +246,11 @@ document.getElementById('randomizeBtn').onclick = randomizeSeating;
 document.getElementById('compactBtn').onclick = compactSeating;
 document.getElementById('callBtn').onclick = randomCall;
 document.getElementById('refreshBtn').onclick = loadState;
+document.getElementById('resetBtn').onclick = async function () {
+  if (confirm('Clear today\'s seating, absences, and engagement pips? This does not affect the roster or blocked desks.')) {
+    applyStateResponse(await callAction('resetDay'));
+  }
+};
 
 (async function init() {
   await loadRoster();
