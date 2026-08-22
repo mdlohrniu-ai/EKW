@@ -22,6 +22,7 @@
 </head>
 <body>
 <h2>Scan attendance</h2>
+<div id="cameraPicker" style="margin-bottom:8px;font-size:14px;"></div>
 <div id="reader"></div>
 <div id="status">Point camera at a QR code</div>
 <div id="log"></div>
@@ -68,14 +69,40 @@ async function onScanSuccess(decodedText) {
 }
 
 const scanner = new Html5Qrcode('reader');
-scanner.start(
-  { facingMode: 'environment' },
-  { fps: 10, qrbox: 220 },
-  onScanSuccess
-).catch(function (err) {
-  statusEl.textContent = 'Could not access camera: ' + err;
+
+Html5Qrcode.getCameras().then(function (devices) {
+  if (!devices || !devices.length) {
+    statusEl.textContent = 'No camera found on this computer';
+    statusEl.className = 'err';
+    return;
+  }
+  startCamera(devices[0].id);
+  if (devices.length > 1) {
+    const picker = document.getElementById('cameraPicker');
+    const select = document.createElement('select');
+    devices.forEach(function (d, i) {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.label || ('Camera ' + (i + 1));
+      select.appendChild(opt);
+    });
+    select.onchange = function () {
+      scanner.stop().then(function () { startCamera(select.value); });
+    };
+    picker.appendChild(document.createTextNode('Camera: '));
+    picker.appendChild(select);
+  }
+}).catch(function (err) {
+  statusEl.textContent = 'Could not access any camera: ' + err;
   statusEl.className = 'err';
 });
+
+function startCamera(cameraId) {
+  scanner.start(cameraId, { fps: 10, qrbox: 220 }, onScanSuccess).catch(function (err) {
+    statusEl.textContent = 'Could not start camera: ' + err;
+    statusEl.className = 'err';
+  });
+}
 </script>
 </body>
 </html>
