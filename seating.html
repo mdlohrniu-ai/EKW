@@ -261,8 +261,13 @@ function render() {
       wrapper.appendChild(bottomInner);
       wrapper.appendChild(toggleBtn(p, false));
     } else {
+      const isEmpty = deskGroups[p].length === 0;
       wrapper.style.gridRow = String(row + 1);
-      wrapper.style.cssText += ';border:2px solid #3b6d11;border-radius:8px;padding:4px;';
+      if (isEmpty) {
+        wrapper.style.cssText += ';border:2px dashed #ddd;border-radius:8px;padding:4px;opacity:0.4;';
+      } else {
+        wrapper.style.cssText += ';border:2px solid #3b6d11;border-radius:8px;padding:4px;';
+      }
       wrapper.appendChild(buildRowFromIds(deskGroups[p]));
       wrapper.appendChild(toggleBtn(p, false));
     }
@@ -274,7 +279,7 @@ function render() {
     const filler = document.createElement('div');
     filler.style.gridColumn = String(col + 1);
     filler.style.gridRow = String(row + 1);
-    filler.style.cssText += ';border:2px dashed #ddd;border-radius:8px;padding:4px;opacity:0.35;';
+    filler.style.cssText += ';border:2px dashed #ddd;border-radius:8px;padding:4px;opacity:0.4;';
     filler.appendChild(buildRowFromIds([]));
     grid.appendChild(filler);
   }
