@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Scan attendance</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 20px auto; padding: 0 16px; text-align: center; color: #1a1a1a; }
+  h2 { font-size: 20px; }
+  #reader { width: 100%; border-radius: 8px; overflow: hidden; }
+  #status { font-size: 20px; font-weight: bold; margin: 16px 0; min-height: 30px; }
+  .ok { color: #1a7f37; }
+  .err { color: #c0392b; }
+  #log { text-align: left; font-size: 14px; color: #555; max-height: 220px; overflow-y: auto; border-top: 1px solid #ddd; padding-top: 10px; }
+  #log div { padding: 4px 0; border-bottom: 1px solid #eee; }
+</style>
+</head>
+<body>
+<h2>Scan attendance</h2>
+<div id="reader"></div>
+<div id="status">Point camera at a QR code</div>
+<div id="log"></div>
+
+<script>
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+let lastToken = null;
+let lastTime = 0;
+const COOLDOWN_MS = 4000;
+
+function addLog(text, ok) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  div.style.color = ok ? '#1a7f37' : '#c0392b';
+  logEl.prepend(div);
+}
+
+async function onScanSuccess(decodedText) {
+  const now = Date.now();
+  if (decodedText === lastToken && now - lastTime < COOLDOWN_MS) return;
+  lastToken = decodedText;
+  lastTime = now;
+
+  statusEl.textContent = 'Checking...';
+  statusEl.className = '';
+  try {
+    const res = await fetch(WEBAPP_URL + '?action=logAttendanceByToken&token=' + encodeURIComponent(decodedText));
+    const data = await res.json();
+    if (data.error) {
+      statusEl.textContent = 'Code not recognized';
+      statusEl.className = 'err';
+      addLog('Unrecognized scan', false);
+    } else {
+      statusEl.textContent = 'Marked present: ' + data.name;
+      statusEl.className = 'ok';
+      addLog(data.name + ' marked present', true);
+    }
+  } catch (err) {
+    statusEl.textContent = 'Connection error, try again';
+    statusEl.className = 'err';
+  }
+}
+
+const scanner = new Html5Qrcode('reader');
+scanner.start(
+  { facingMode: 'environment' },
+  { fps: 10, qrbox: 220 },
+  onScanSuccess
+).catch(function (err) {
+  statusEl.textContent = 'Could not access camera: ' + err;
+  statusEl.className = 'err';
+});
+</script>
+</body>
+</html>
