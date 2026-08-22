@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>My QR code</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 420px; margin: 60px auto; padding: 0 20px; text-align: center; color: #1a1a1a; }
+  h2 { font-size: 22px; margin-bottom: 24px; }
+  input { font-size: 18px; padding: 12px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
+  button { font-size: 16px; padding: 12px 20px; cursor: pointer; width: 100%; margin-bottom: 8px; border: 1px solid #333; border-radius: 6px; background: #fff; }
+  button:active { background: #eee; }
+  #qrcode { margin: 20px auto; display: none; }
+  #name { font-size: 20px; font-weight: bold; margin-top: 16px; }
+  #error { color: #c0392b; margin-top: 10px; min-height: 20px; }
+</style>
+</head>
+<body>
+  <h2>Get your QR code</h2>
+  <input type="text" id="studentId" placeholder="Enter your student number" inputmode="numeric">
+  <button onclick="lookup()">Get my QR code</button>
+  <div id="error"></div>
+  <div id="name"></div>
+  <div id="qrcode"></div>
+  <button id="saveBtn" style="display:none" onclick="saveImage()">Save to photos</button>
+
+<script>
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
+
+async function lookup() {
+  const id = document.getElementById('studentId').value.trim();
+  const errorEl = document.getElementById('error');
+  const nameEl = document.getElementById('name');
+  const qrEl = document.getElementById('qrcode');
+  const saveBtn = document.getElementById('saveBtn');
+  errorEl.textContent = '';
+  nameEl.textContent = '';
+  qrEl.style.display = 'none';
+  qrEl.innerHTML = '';
+  saveBtn.style.display = 'none';
+
+  if (!id) {
+    errorEl.textContent = 'Enter your student number first.';
+    return;
+  }
+
+  try {
+    const res = await fetch(WEBAPP_URL + '?action=getStudent&studentId=' + encodeURIComponent(id));
+    const data = await res.json();
+    if (data.error) {
+      errorEl.textContent = "That student number wasn't found. Check the number and try again.";
+      return;
+    }
+    nameEl.textContent = data.name;
+    qrEl.style.display = 'block';
+    new QRCode(qrEl, { text: data.token, width: 220, height: 220 });
+    saveBtn.style.display = 'block';
+  } catch (err) {
+    errorEl.textContent = 'Something went wrong. Check your connection and try again.';
+  }
+}
+
+function saveImage() {
+  const qrEl = document.getElementById('qrcode');
+  const canvas = qrEl.querySelector('canvas');
+  const img = qrEl.querySelector('img');
+  const link = document.createElement('a');
+  link.download = 'my-qr-code.png';
+  link.href = canvas ? canvas.toDataURL('image/png') : img.src;
+  link.click();
+}
+</script>
+</body>
+</html>
