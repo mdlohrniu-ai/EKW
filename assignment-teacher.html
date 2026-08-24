@@ -9,6 +9,7 @@
   *, *::before, *::after { box-sizing: border-box; }
   h2 { font-size: 18px; }
   h3 { font-size: 15px; margin-bottom: 8px; }
+  h4 { font-size: 13px; margin: 6px 0; }
   input, textarea, select { font-size: 14px; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
   textarea { width: 100%; min-height: 70px; }
   button { font-size: 14px; padding: 8px 14px; cursor: pointer; margin-right: 6px; margin-bottom: 6px; border: 1px solid #333; border-radius: 6px; background: #fff; }
@@ -17,16 +18,21 @@
   .field-row input { flex: 1; }
   .sub-card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
   .thumb { width: 120px; height: 120px; object-fit: cover; border-radius: 6px; margin: 4px; cursor: pointer; }
+  .rubric-box { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-bottom: 8px; }
+  .level-btn { font-size: 12px; }
   #loadingOverlay { display:none; position:fixed; inset:0; background:rgba(255,255,255,0.6); align-items:center; justify-content:center; z-index:50; }
   .spinner { width:40px; height:40px; border:5px solid #ddd; border-top-color:#2d5c0d; border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #presentView { display:none; }
-  #presentView .thumb-big { max-width: 90%; max-height: 60vh; border-radius: 8px; margin: 10px auto; display:block; }
   .student-pick { display:block; width:100%; text-align:left; margin-bottom:4px; }
+  #presentDisplay img { max-width: 90%; max-height: 60vh; border-radius: 8px; margin: 10px 0; display:block; }
 </style>
 </head>
 <body>
 <div id="loadingOverlay"><div class="spinner"></div></div>
+
+<div id="presentOnlyView" style="display:none;">
+  <div id="presentDisplay" style="font-size:22px;padding:20px;"></div>
+</div>
 
 <div id="loginGate" style="max-width:340px;margin:80px auto;text-align:center;">
   <h2>Assignment portal login</h2>
@@ -37,54 +43,62 @@
 
 <div id="appContent" style="display:none;">
 <h2>Weekly assignment portal</h2>
-<button id="togglePresentBtn">Presentation mode</button>
 
-<div id="manageView">
-  <div class="card">
-    <h3>Current assignment</h3>
-    <div id="currentAssignmentBox">Loading...</div>
-  </div>
-
-  <div class="card">
-    <h3>Create a new assignment</h3>
-    <input type="text" id="newLabel" placeholder="Label (e.g. Week 5)" style="width:100%;margin-bottom:8px;">
-    <textarea id="newTopic" placeholder="Topic / instructions for students"></textarea>
-    <div style="margin:8px 0;">Photos required: <input type="number" id="newPhotoCount" value="1" min="0" style="width:60px;"></div>
-    <div id="newFieldsList"></div>
-    <button id="addFieldBtn">+ Add text field</button>
-    <div style="margin-top:12px;"><button id="publishBtn">Publish new assignment</button></div>
-    <div id="publishStatus" style="font-size:13px;margin-top:6px;"></div>
-  </div>
-
-  <div class="card">
-    <h3>Review submissions</h3>
-    <select id="weekPicker" style="width:100%;margin-bottom:12px;"></select>
-    <div id="submissionsList"></div>
-  </div>
+<div class="card">
+  <h3>Current assignment</h3>
+  <div id="currentAssignmentBox">Loading...</div>
 </div>
 
-<div id="presentView">
+<div class="card">
+  <h3>Create a new assignment</h3>
+  <input type="text" id="newLabel" placeholder="Label (e.g. Week 5)" style="width:100%;margin-bottom:8px;">
+  <textarea id="newTopic" placeholder="Topic / instructions for students"></textarea>
+  <div style="margin:8px 0;">Photos required: <input type="number" id="newPhotoCount" value="1" min="0" style="width:60px;"></div>
+  <div id="newFieldsList"></div>
+  <button id="addFieldBtn">+ Add text field</button>
+  <div style="margin-top:12px;"><button id="publishBtn">Publish new assignment</button></div>
+  <div id="publishStatus" style="font-size:13px;margin-top:6px;"></div>
+</div>
+
+<div class="card">
+  <h3>Edit rubrics</h3>
+  <div id="rubricEditor"></div>
+  <button id="saveRubricsBtn">Save rubrics</button>
+  <div id="rubricSaveStatus" style="font-size:13px;margin-top:6px;"></div>
+</div>
+
+<div class="card">
+  <h3>Review submissions</h3>
+  <select id="weekPicker" style="width:100%;margin-bottom:12px;"></select>
+  <div id="submissionsList"></div>
+</div>
+
+<div class="card">
+  <h3>Presentation mode</h3>
+  <button id="openPresentBtn">Open presentation window</button>
+  <p style="font-size:12px;color:#666;">Opens the display in a separate window \u2014 drag it to your TV, then pick who's presenting from the list below. You can grade them here while it's showing.</p>
   <div style="display:flex;gap:20px;">
     <div style="width:220px;flex-shrink:0;">
-      <h3>Pick a student</h3>
       <div id="presentPicker"></div>
     </div>
-    <div style="flex:1;">
-      <div id="presentDisplay" style="font-size:20px;"></div>
-    </div>
+    <div style="flex:1;" id="presentGradeArea"></div>
   </div>
 </div>
+
 </div>
 
 <script>
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
+const isPresentMode = new URLSearchParams(location.search).get('present') === '1';
 let savedPassword = localStorage.getItem('assignmentPassword') || '';
 let history = [];
 let currentSubs = [];
 let selectedWeekId = null;
+let rubrics = { homework: [], presentation: [] };
+let presentWin = null;
 
-function showLoading() { document.getElementById('loadingOverlay').style.display = 'flex'; }
-function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+function showLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'flex'; }
+function hideLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'none'; }
 
 async function callAction(action, params) {
   showLoading();
@@ -103,6 +117,21 @@ async function tryLogin(pw) {
   return !data.error;
 }
 
+// === PRESENT-ONLY WINDOW MODE ===
+if (isPresentMode) {
+  document.getElementById('loginGate').style.display = 'none';
+  document.getElementById('appContent').style.display = 'none';
+  document.getElementById('presentOnlyView').style.display = 'block';
+  window.showSubmission = function (sub, fieldInstructions) {
+    const display = document.getElementById('presentDisplay');
+    const photosHtml = (sub.photoLinks || []).map(function (url) { return '<img src="' + url + '">'; }).join('');
+    const responsesHtml = (sub.responses || []).map(function (r, i) {
+      return '<p><b>' + (fieldInstructions[i] || ('Field ' + (i + 1))) + '</b><br>' + r + '</p>';
+    }).join('');
+    display.innerHTML = '<h1>' + sub.studentName + '</h1>' + photosHtml + responsesHtml;
+  };
+}
+
 document.getElementById('pwSubmit').onclick = async function () {
   const pw = document.getElementById('pwInput').value;
   const ok = await tryLogin(pw);
@@ -118,6 +147,7 @@ document.getElementById('pwSubmit').onclick = async function () {
 };
 
 (async function initLogin() {
+  if (isPresentMode) return;
   if (savedPassword && await tryLogin(savedPassword)) {
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('appContent').style.display = 'block';
@@ -127,6 +157,8 @@ document.getElementById('pwSubmit').onclick = async function () {
 
 async function boot() {
   addFieldRow();
+  rubrics = await callAction('getRubrics');
+  renderRubricEditor();
   await loadCurrentAssignment();
   await loadHistory();
 }
@@ -148,7 +180,7 @@ function addFieldRow(value) {
   input.placeholder = 'Instructions for this text field';
   input.value = value || '';
   const removeBtn = document.createElement('button');
-  removeBtn.textContent = '×';
+  removeBtn.textContent = '\u00d7';
   removeBtn.onclick = function () { row.remove(); };
   row.appendChild(input);
   row.appendChild(removeBtn);
@@ -176,6 +208,67 @@ document.getElementById('publishBtn').onclick = async function () {
   await loadHistory();
 };
 
+function renderRubricEditor() {
+  const container = document.getElementById('rubricEditor');
+  container.innerHTML = '';
+  ['homework', 'presentation'].forEach(function (type) {
+    const section = document.createElement('div');
+    section.style.marginBottom = '16px';
+    const heading = document.createElement('h4');
+    heading.textContent = type === 'homework' ? 'Homework rubric' : 'Presentation rubric';
+    section.appendChild(heading);
+    (rubrics[type] || []).forEach(function (crit, ci) {
+      const critBox = document.createElement('div');
+      critBox.className = 'rubric-box';
+      const labelInput = document.createElement('input');
+      labelInput.type = 'text'; labelInput.value = crit.label;
+      labelInput.style.cssText = 'width:100%;margin-bottom:6px;font-weight:600;';
+      labelInput.onchange = function () { crit.label = this.value; };
+      critBox.appendChild(labelInput);
+      crit.levels.forEach(function (level, li) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;';
+        const lInput = document.createElement('input');
+        lInput.type = 'text'; lInput.value = level.label; lInput.style.flex = '1';
+        lInput.onchange = function () { level.label = this.value; };
+        const pInput = document.createElement('input');
+        pInput.type = 'number'; pInput.value = level.points; pInput.style.width = '70px';
+        pInput.onchange = function () { level.points = Number(this.value); };
+        const rmBtn = document.createElement('button');
+        rmBtn.textContent = '\u00d7';
+        rmBtn.onclick = function () { crit.levels.splice(li, 1); renderRubricEditor(); };
+        row.appendChild(lInput); row.appendChild(pInput); row.appendChild(rmBtn);
+        critBox.appendChild(row);
+      });
+      const addLevelBtn = document.createElement('button');
+      addLevelBtn.textContent = '+ Add level';
+      addLevelBtn.onclick = function () { crit.levels.push({ label: 'New level', points: 0 }); renderRubricEditor(); };
+      critBox.appendChild(addLevelBtn);
+      const rmCritBtn = document.createElement('button');
+      rmCritBtn.textContent = 'Remove criterion';
+      rmCritBtn.onclick = function () { rubrics[type].splice(ci, 1); renderRubricEditor(); };
+      critBox.appendChild(rmCritBtn);
+      section.appendChild(critBox);
+    });
+    const addCritBtn = document.createElement('button');
+    addCritBtn.textContent = '+ Add criterion';
+    addCritBtn.onclick = function () {
+      rubrics[type].push({ id: type + '_' + Date.now(), label: 'New criterion', levels: [{ label: 'Level', points: 0 }] });
+      renderRubricEditor();
+    };
+    section.appendChild(addCritBtn);
+    container.appendChild(section);
+  });
+}
+
+document.getElementById('saveRubricsBtn').onclick = async function () {
+  await callAction('saveRubrics', { rubrics: JSON.stringify(rubrics) });
+  const statusEl = document.getElementById('rubricSaveStatus');
+  statusEl.textContent = 'Rubrics saved.';
+  statusEl.style.color = '#1a7f37';
+  await loadSubmissions();
+};
+
 async function loadHistory() {
   history = await callAction('getAssignmentHistory');
   const picker = document.getElementById('weekPicker');
@@ -190,41 +283,91 @@ async function loadHistory() {
 }
 document.getElementById('weekPicker').onchange = async function () { selectedWeekId = this.value; await loadSubmissions(); };
 
+function renderRubricBlock(type, submission, weekId, container) {
+  const rubricCriteria = rubrics[type] || [];
+  const selected = Object.assign({}, type === 'homework' ? submission.homeworkGrades : submission.presentationGrades);
+  const block = document.createElement('div');
+  block.style.cssText = 'border-top:1px solid #eee;margin-top:10px;padding-top:10px;';
+  const title = document.createElement('div');
+  title.style.fontWeight = '600';
+  title.textContent = type === 'homework' ? 'Homework grade' : 'Presentation grade';
+  block.appendChild(title);
+
+  const totalDiv = document.createElement('div');
+  totalDiv.style.cssText = 'margin:6px 0;font-size:13px;font-weight:600;';
+  function computeTotal() { return rubricCriteria.reduce(function (sum, c) { return sum + (selected[c.id] || 0); }, 0); }
+  function updateTotal() { totalDiv.textContent = 'Total: ' + computeTotal(); }
+
+  rubricCriteria.forEach(function (crit) {
+    const critDiv = document.createElement('div');
+    critDiv.style.margin = '6px 0';
+    const critLabel = document.createElement('div');
+    critLabel.style.cssText = 'font-size:12px;color:#666;';
+    critLabel.textContent = crit.label;
+    critDiv.appendChild(critLabel);
+    const levelsDiv = document.createElement('div');
+    levelsDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+    const refreshers = [];
+    crit.levels.forEach(function (level) {
+      const btn = document.createElement('button');
+      btn.className = 'level-btn';
+      btn.textContent = level.label + ' (' + level.points + ')';
+      function refresh() {
+        const isSel = selected[crit.id] === level.points;
+        btn.style.background = isSel ? '#2d5c0d' : '#fff';
+        btn.style.color = isSel ? '#fff' : '#000';
+      }
+      btn.onclick = function () {
+        selected[crit.id] = level.points;
+        refreshers.forEach(function (fn) { fn(); });
+        updateTotal();
+      };
+      refreshers.push(refresh);
+      refresh();
+      levelsDiv.appendChild(btn);
+    });
+    critDiv.appendChild(levelsDiv);
+    block.appendChild(critDiv);
+  });
+
+  block.appendChild(totalDiv);
+  updateTotal();
+
+  const saveBtn = document.createElement('button');
+  const label = type === 'homework' ? 'Save homework grade' : 'Save presentation grade';
+  saveBtn.textContent = label;
+  saveBtn.onclick = async function () {
+    const total = computeTotal();
+    await callAction('gradeSubmission', { weekId: weekId, studentId: submission.studentId, type: type, grades: JSON.stringify(selected), total: total });
+    saveBtn.textContent = 'Saved';
+    setTimeout(function () { saveBtn.textContent = label; }, 1500);
+  };
+  block.appendChild(saveBtn);
+  container.appendChild(block);
+}
+
 async function loadSubmissions() {
   currentSubs = await callAction('getSubmissionsForWeek', { weekId: selectedWeekId });
   const list = document.getElementById('submissionsList');
   list.innerHTML = '';
-  if (!currentSubs.length) { list.textContent = 'No submissions yet for this week.'; return; }
+  if (!currentSubs.length) { list.textContent = 'No submissions yet for this week.'; renderPresentPicker(); return; }
+  const assignment = history.find(function (a) { return a.weekId === selectedWeekId; });
   currentSubs.forEach(function (sub) {
     const card = document.createElement('div');
     card.className = 'sub-card';
     const photosHtml = sub.photoLinks.map(function (url) { return '<img class="thumb" src="' + url + '">'; }).join('');
-    const responsesHtml = sub.responses.map(function (r, i) { return '<div style="margin:4px 0;"><b>' + (history.find(function(a){return a.weekId===selectedWeekId;}).fieldInstructions[i] || ('Field ' + (i+1))) + ':</b> ' + r + '</div>'; }).join('');
-    card.innerHTML =
-      '<b>' + sub.studentName + '</b> (' + sub.studentId + ')<br>' +
-      '<div>' + photosHtml + '</div>' + responsesHtml +
-      '<div style="margin-top:8px;">Grade: <input type="text" class="grade-input" value="' + (sub.grade || '') + '" style="width:80px;"> ' +
-      'Comment: <input type="text" class="comment-input" value="' + (sub.comment || '') + '" style="width:250px;"> ' +
-      '<button class="save-grade-btn">Save</button></div>';
-    card.querySelector('.save-grade-btn').onclick = async function () {
-      const grade = card.querySelector('.grade-input').value;
-      const comment = card.querySelector('.comment-input').value;
-      await callAction('gradeSubmission', { weekId: selectedWeekId, studentId: sub.studentId, grade: grade, comment: comment });
-      this.textContent = 'Saved';
-      setTimeout(function () { document.querySelector('.save-grade-btn') && (document.querySelector('.save-grade-btn').textContent = 'Save'); }, 1500);
-    };
+    const responsesHtml = sub.responses.map(function (r, i) {
+      return '<div style="margin:4px 0;"><b>' + (assignment.fieldInstructions[i] || ('Field ' + (i + 1))) + ':</b> ' + r + '</div>';
+    }).join('');
+    card.innerHTML = '<b>' + sub.studentName + '</b> (' + sub.studentId + ')<br><div>' + photosHtml + '</div>' + responsesHtml;
+    renderRubricBlock('homework', sub, selectedWeekId, card);
     list.appendChild(card);
   });
+  renderPresentPicker();
 }
 
-document.getElementById('togglePresentBtn').onclick = function () {
-  const manage = document.getElementById('manageView');
-  const present = document.getElementById('presentView');
-  const showingPresent = present.style.display === 'block';
-  manage.style.display = showingPresent ? 'block' : 'none';
-  present.style.display = showingPresent ? 'none' : 'block';
-  this.textContent = showingPresent ? 'Presentation mode' : 'Back to manage';
-  if (!showingPresent) renderPresentPicker();
+document.getElementById('openPresentBtn').onclick = function () {
+  presentWin = window.open(location.pathname + '?present=1', 'presentWin', 'width=1100,height=750');
 };
 
 function renderPresentPicker() {
@@ -234,17 +377,19 @@ function renderPresentPicker() {
     const btn = document.createElement('button');
     btn.className = 'student-pick';
     btn.textContent = sub.studentName;
-    btn.onclick = function () { showPresent(sub); };
+    btn.onclick = function () { selectPresenting(sub); };
     picker.appendChild(btn);
   });
 }
 
-function showPresent(sub) {
+function selectPresenting(sub) {
   const assignment = history.find(function (a) { return a.weekId === selectedWeekId; });
-  const display = document.getElementById('presentDisplay');
-  const photosHtml = sub.photoLinks.map(function (url) { return '<img class="thumb-big" src="' + url + '">'; }).join('');
-  const responsesHtml = sub.responses.map(function (r, i) { return '<p><b>' + (assignment.fieldInstructions[i] || ('Field ' + (i+1))) + '</b><br>' + r + '</p>'; }).join('');
-  display.innerHTML = '<h2>' + sub.studentName + '</h2>' + photosHtml + responsesHtml;
+  if (presentWin && !presentWin.closed && presentWin.showSubmission) {
+    presentWin.showSubmission(sub, assignment.fieldInstructions);
+  }
+  const area = document.getElementById('presentGradeArea');
+  area.innerHTML = '<h4>' + sub.studentName + '</h4>';
+  renderRubricBlock('presentation', sub, selectedWeekId, area);
 }
 </script>
 </body>

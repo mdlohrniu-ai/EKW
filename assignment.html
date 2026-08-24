@@ -159,7 +159,7 @@ document.getElementById('submitBtn').onclick = async function () {
     for (let i = 0; i < photoInputs.length; i++) {
       const file = photoInputs[i].files[0];
       if (!file) { statusEl.textContent = 'Please choose all ' + photoInputs.length + ' photo(s) before submitting.'; statusEl.style.color = '#c0392b'; btn.disabled = false; btn.textContent = 'Submit'; hideLoading(); return; }
-      const resized = await resizeImage(file, 1200, 0.75);
+      const resized = await resizeImage(file, 1000, 0.75);
       photoData.push(resized);
     }
     const responses = textInputs.map(function (t) { return t.value.trim(); });
