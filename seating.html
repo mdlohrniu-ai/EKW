@@ -32,7 +32,11 @@
 </div>
 <div id="appContent" style="display:none;flex-direction:column;height:100%;">
 <div id="header">
-<h2 style="font-size:18px;margin:0 0 10px;">Seating chart</h2>
+<h2 style="font-size:18px;margin:0 0 10px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+  Seating chart
+  <span style="font-size:13px;font-weight:400;color:#333;">Date: <input type="date" id="classDateInput" style="font-size:13px;padding:3px 6px;"></span>
+  <span style="font-size:13px;font-weight:400;color:#333;">Class #: <input type="text" id="classNumberInput" style="font-size:13px;padding:3px 6px;width:90px;"></span>
+</h2>
 <div>
   <button id="randomizeBtn">Randomize seating</button>
   <button id="compactBtn">Compact</button>
@@ -61,7 +65,7 @@ const COLUMNS = 4;
 const POLL_MS = 15000;
 
 let roster = [];
-let state = { seats: [], absent: [], blocked: [], pips: {}, lastPicked: null, activePairCount: 0, attendanceStatus: {} };
+let state = { seats: [], absent: [], blocked: [], pips: {}, lastPicked: null, activePairCount: 0, attendanceStatus: {}, classDate: '', classNumber: '' };
 let lastMoved = 0;
 let savedPassword = localStorage.getItem('seatingPassword') || '';
 
@@ -118,6 +122,7 @@ function showExportPanel(data) {
   box.style.cssText = 'background:#fff;border-radius:10px;padding:20px;max-width:560px;width:90%;max-height:85vh;overflow:auto;';
   box.innerHTML =
     '<h3 style="margin-top:0;">Export attendance (' + data.count + ' students)</h3>' +
+    '<p style="font-size:12px;color:' + (data.saved ? '#1a7f37' : '#c0392b') + ';">' + (data.saved ? '✓ Record copy saved to your Drive folder.' : '⚠ Could not save a copy to Drive \u2014 the paste list below still works fine, but check folder access if you want the record saved too.') + '</p>' +
     '<p style="font-size:13px;color:#555;">Step 1 &mdash; check this list matches the row order in your manaba download (both are sorted by student ID):</p>' +
     '<pre style="background:#f7f7f7;border:1px solid #ddd;border-radius:6px;padding:8px;font-size:12px;max-height:160px;overflow:auto;">' + data.check + '</pre>' +
     '<p style="font-size:13px;color:#555;">Step 2 &mdash; copy this list, then in your manaba download click cell M15 and paste (Ctrl+Shift+V for values only):</p>' +
@@ -167,8 +172,22 @@ document.getElementById('pwSubmit').onclick = async function () {
 function applyStateResponse(data) {
   if (data.state) { state = data.state; lastMoved = data.moved || 0; }
   else { state = data; }
+  syncClassInfoInputs();
   render();
 }
+
+function syncClassInfoInputs() {
+  document.getElementById('classDateInput').value = state.classDate || '';
+  document.getElementById('classNumberInput').value = state.classNumber || '';
+}
+
+async function saveClassInfo() {
+  const date = document.getElementById('classDateInput').value;
+  const classNumber = document.getElementById('classNumberInput').value;
+  applyStateResponse(await callAction('setClassInfo', { date: date, classNumber: classNumber }));
+}
+document.getElementById('classDateInput').onchange = saveClassInfo;
+document.getElementById('classNumberInput').onchange = saveClassInfo;
 
 async function loadRoster() {
   roster = await callAction('getRoster');
