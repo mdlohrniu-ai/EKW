@@ -31,7 +31,7 @@
 <div id="loadingOverlay"><div class="spinner"></div></div>
 
 <div id="presentOnlyView" style="display:none;">
-  <div id="presentDisplay" style="font-size:22px;padding:20px;"></div>
+  <div id="presentDisplay" style="font-size:22px;padding:20px;color:#888;">Waiting for a student to be picked in the main window...</div>
 </div>
 
 <div id="loginGate" style="max-width:340px;margin:80px auto;text-align:center;">
@@ -408,10 +408,12 @@ document.getElementById('exportGradesBtn').onclick = async function () {
   const data = await callAction('exportGrades', { weekId: selectedWeekId, label: assignment ? assignment.label : selectedWeekId });
   const panel = document.getElementById('exportGradesPanel');
   panel.style.display = 'block';
-  panel.innerHTML =
-    '<div style="font-size:13px;color:' + (data.saved ? '#1a7f37' : '#c0392b') + ';margin-bottom:6px;">' +
-    (data.saved ? '\u2713 Saved a record to your Drive folder.' : '\u26a0 Could not save a Drive record \u2014 the list below still works.') + '</div>' +
-    '<textarea readonly style="width:100%;height:140px;font-size:12px;">' + data.list + '</textarea>';
+  if (data.saved && data.url) {
+    panel.innerHTML = '<div style="font-size:13px;color:#1a7f37;">Opened in a new tab \u2014 ' + data.count + ' students.</div>';
+    window.open(data.url, '_blank');
+  } else {
+    panel.innerHTML = '<div style="font-size:13px;color:#c0392b;">Could not create the export file. Check that the assignment grades folder is accessible.</div>';
+  }
 };
 </script>
 </body>
