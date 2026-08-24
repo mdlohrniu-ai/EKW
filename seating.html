@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html, body { height: 100%; margin: 0; }
+  body.grading-active { height: auto; }
+  body.grading-active #appContent { height: auto; }
+  body.grading-active #gridWrapper { flex: none; min-height: 340px; overflow: visible; }
   body { font-family: system-ui, -apple-system, sans-serif; color: #1a1a1a; display: flex; flex-direction: column; }
   *, *::before, *::after { box-sizing: border-box; }
   .pip { width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(255,255,255,0.55); }
@@ -181,14 +184,14 @@ function hideLoading() {
   if (loadingCount === 0) document.getElementById('loadingOverlay').style.display = 'none';
 }
 
-async function callAction(action, params) {
-  showLoading();
+async function callAction(action, params, silent) {
+  if (!silent) showLoading();
   try {
     const qs = new URLSearchParams(Object.assign({ action: action, password: savedPassword }, params || {}));
     const res = await fetch(WEBAPP_URL + '?' + qs.toString());
     return await res.json();
   } finally {
-    hideLoading();
+    if (!silent) hideLoading();
   }
 }
 
@@ -238,7 +241,7 @@ async function loadRoster() {
 }
 
 async function loadState() {
-  const data = await callAction('getState');
+  const data = await callAction('getState', null, true);
   applyStateResponse(data);
 }
 
@@ -425,6 +428,7 @@ document.getElementById('gradingModeBtn').onclick = function () {
   pendingScores = {};
   gradingDirty = false;
   this.style.background = gradingMode ? '#c084fc' : '#f3e8ff';
+  document.body.classList.toggle('grading-active', gradingMode);
   renderGradingPanel();
   fitGrid();
   render();
