@@ -45,7 +45,9 @@
 <div id="stat"></div>
 <div id="lateList"></div>
 <div style="font-size:12px;color:#777;margin-bottom:6px;white-space:nowrap;">Click a name to mark absent. Left-click the next open pip for volunteered, right-click for randomly called. Hover a desk to block it.</div>
-<div style="font-size:11px;color:#999;margin-bottom:6px;">front of class, reading order</div>
+<div style="display:flex;justify-content:center;margin-bottom:14px;">
+  <div style="background:#8a8a8a;color:#fff;font-weight:600;font-size:13px;padding:14px 50px;border-radius:8px;text-align:center;">Teacher</div>
+</div>
 </div>
 <div id="gridWrapper"><div id="grid"></div></div>
 <div id="statusMenu" style="display:none;position:fixed;background:#fff;border:1px solid #999;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.25);z-index:10;padding:4px 0;"></div>
@@ -74,12 +76,14 @@ async function setStatus(id, status) { applyStateResponse(await callAction('setS
 function showStatusMenu(x, y, id) {
   const menu = document.getElementById('statusMenu');
   menu.innerHTML = '';
+  const current = statusFor(id);
   STATUSES.forEach(function (s) {
     const item = document.createElement('div');
-    item.textContent = s;
-    item.style.cssText = 'padding:6px 16px;cursor:pointer;font-size:13px;white-space:nowrap;';
-    item.onmouseover = function () { item.style.background = '#f0f0f0'; };
-    item.onmouseout = function () { item.style.background = ''; };
+    const isCurrent = s === current;
+    item.textContent = (isCurrent ? '✓ ' : '') + s;
+    item.style.cssText = 'padding:6px 16px;cursor:pointer;font-size:13px;white-space:nowrap;' + (isCurrent ? 'font-weight:600;background:#eef5ff;' : '');
+    item.onmouseover = function () { if (!isCurrent) item.style.background = '#f0f0f0'; };
+    item.onmouseout = function () { item.style.background = isCurrent ? '#eef5ff' : ''; };
     item.onclick = function () { setStatus(id, s); menu.style.display = 'none'; };
     menu.appendChild(item);
   });
