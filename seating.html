@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <title>Seating chart</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html, body { height: 100%; margin: 0; }
@@ -90,14 +92,6 @@
   <div style="width:44px;height:44px;border:5px solid #ddd;border-top-color:#2d5c0d;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
 </div>
 <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-<style>
-@media print {
-  @page { size: portrait; margin: 0.3in; }
-  #header, #loginGate, #statusMenu, #loadingOverlay, #gradingPanel { display: none !important; }
-  body, #appContent, #gridWrapper { height: auto !important; overflow: visible !important; }
-  .desk-toggle { display: none !important; }
-}
-</style>
 </div>
 
 <script>
@@ -471,19 +465,46 @@ document.getElementById('gradingModeBtn').onclick = function () {
   render();
 };
 
-document.getElementById('downloadPdfBtn').onclick = function () {
+document.getElementById('downloadPdfBtn').onclick = async function () {
+  const btn = this;
   const scene = document.getElementById('scene');
-  scene.style.transform = 'scale(1)';
-  const naturalWidth = scene.scrollWidth;
-  const naturalHeight = scene.scrollHeight;
-  const PAGE_W = 750;
-  const PAGE_H = 980;
-  const scale = Math.min(PAGE_W / naturalWidth, PAGE_H / naturalHeight, 4);
-  scene.style.transform = 'scale(' + scale + ')';
-  scene.style.transformOrigin = 'top left';
-  window.print();
+  const prevTransform = scene.style.transform;
+  btn.disabled = true;
+  btn.textContent = 'Preparing PDF...';
+  showLoading();
+  try {
+    scene.style.transform = 'scale(1)';
+    await new Promise(function (r) { setTimeout(r, 60); });
+    const canvas = await html2canvas(scene, { scale: 3, backgroundColor: '#ffffff' });
+    scene.style.transform = prevTransform;
+    fitGrid();
+
+    const imgW = canvas.width, imgH = canvas.height;
+    const orientation = imgW > imgH ? 'landscape' : 'portrait';
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: orientation, unit: 'pt', format: 'letter' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+    const availW = pageW - margin * 2;
+    const availH = pageH - margin * 2;
+    const scale = Math.min(availW / imgW, availH / imgH);
+    const drawW = imgW * scale;
+    const drawH = imgH * scale;
+    const x = (pageW - drawW) / 2;
+    const y = (pageH - drawH) / 2;
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, drawW, drawH);
+    pdf.save('seating-chart.pdf');
+  } catch (err) {
+    scene.style.transform = prevTransform;
+    fitGrid();
+    alert('Could not generate the PDF: ' + err.message);
+  } finally {
+    hideLoading();
+    btn.disabled = false;
+    btn.textContent = 'Download seating chart';
+  }
 };
-window.addEventListener('afterprint', function () { fitGrid(); });
 document.getElementById('addPlusCriterionBtn').onclick = function () {
   const label = prompt('New positive criterion name:');
   if (label) addCriterion('plus', label);
