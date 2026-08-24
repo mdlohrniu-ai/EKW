@@ -96,18 +96,13 @@ function showStatusMenu(x, y, id) {
 document.addEventListener('click', function () { document.getElementById('statusMenu').style.display = 'none'; });
 
 document.getElementById('exportBtn').onclick = async function () {
-  const session = prompt('Session name for this export (e.g. "Class #31-1"):', '');
-  if (session === null) return;
   const btn = this;
-  btn.textContent = 'Exporting...';
+  btn.textContent = 'Loading...';
   btn.disabled = true;
   try {
-    const data = await callAction('exportAttendance', { session: session });
+    const data = await callAction('exportAttendance');
     if (data.error) { alert('Export failed: ' + data.error); return; }
-    const link = document.createElement('a');
-    link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + data.file;
-    link.download = data.filename;
-    link.click();
+    showExportPanel(data);
   } catch (err) {
     alert('Export failed: ' + err);
   } finally {
@@ -115,6 +110,33 @@ document.getElementById('exportBtn').onclick = async function () {
     btn.disabled = false;
   }
 };
+
+function showExportPanel(data) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:20;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:10px;padding:20px;max-width:560px;width:90%;max-height:85vh;overflow:auto;';
+  box.innerHTML =
+    '<h3 style="margin-top:0;">Export attendance (' + data.count + ' students)</h3>' +
+    '<p style="font-size:13px;color:#555;">Step 1 &mdash; check this list matches the row order in your manaba download (both are sorted by student ID):</p>' +
+    '<pre style="background:#f7f7f7;border:1px solid #ddd;border-radius:6px;padding:8px;font-size:12px;max-height:160px;overflow:auto;">' + data.check + '</pre>' +
+    '<p style="font-size:13px;color:#555;">Step 2 &mdash; copy this list, then in your manaba download click cell M15 and paste (Ctrl+Shift+V for values only):</p>' +
+    '<textarea id="exportStatuses" readonly style="width:100%;height:120px;font-size:13px;box-sizing:border-box;">' + data.statuses + '</textarea>' +
+    '<div style="margin-top:10px;display:flex;gap:8px;">' +
+    '<button id="copyStatusesBtn">Copy list</button>' +
+    '<button id="closeExportBtn">Close</button>' +
+    '</div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  document.getElementById('copyStatusesBtn').onclick = function () {
+    const ta = document.getElementById('exportStatuses');
+    ta.select();
+    navigator.clipboard.writeText(ta.value).then(function () {
+      document.getElementById('copyStatusesBtn').textContent = 'Copied!';
+    });
+  };
+  document.getElementById('closeExportBtn').onclick = function () { overlay.remove(); };
+}
 
 async function callAction(action, params) {
   const qs = new URLSearchParams(Object.assign({ action: action, password: savedPassword }, params || {}));
