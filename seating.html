@@ -51,7 +51,8 @@
   <button id="gradingModeBtn" style="background:#f3e8ff;">Grading Mode</button>
 </div>
 <div id="gradingPanel" style="display:none;border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin-bottom:12px;background:#faf7ff;">
-  <div style="font-size:12px;color:#666;margin-bottom:10px;">Click a student to select them, then left-click a criterion to add it, right-click to remove one. Values are per-application; edit the number box to change how many points each is worth.</div>
+  <div style="font-size:12px;color:#666;margin-bottom:6px;">Click a student to select them, then use the + and − buttons to apply or remove a criterion. Edit the number box to change how many points each is worth. Nothing saves until you click "Save grades for this student."</div>
+  <div style="font-size:13px;margin-bottom:10px;">Starting score for all students: <input type="number" id="startingScoreInput" style="width:60px;font-size:13px;"> (scores add to or subtract from this, clamped between 0 and 100)</div>
   <div style="display:flex;gap:28px;flex-wrap:wrap;">
     <div style="min-width:220px;">
       <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Positive</div>
@@ -279,8 +280,11 @@ let pendingScores = {};
 let gradingDirty = false;
 
 async function addCriterion(column, label) { applyStateResponse(await callAction('addCriterion', { column: column, label: label })); }
+async function deleteCriterion(column, critId) { applyStateResponse(await callAction('deleteCriterion', { column: column, critId: critId })); }
 async function setCriterionValue(column, critId, value) { applyStateResponse(await callAction('setCriterionValue', { column: column, critId: critId, value: value })); }
 async function setAttendanceValue(key, value) { applyStateResponse(await callAction('setAttendanceValue', { key: key, value: value })); }
+async function setStartingScore(value) { applyStateResponse(await callAction('setStartingScore', { value: value })); }
+document.getElementById('startingScoreInput').onchange = function () { setStartingScore(Number(this.value)); };
 
 function scoresFor(id) {
   return (id === gradingSelectedId) ? pendingScores : ((state.gradingScores && state.gradingScores[id]) || {});
@@ -291,7 +295,8 @@ function gradingTotal(id) {
   const st = statusFor(id);
   if (state.absent.indexOf(id) !== -1 && st !== 'Attendance Granted') return '0';
   if (st === 'Attendance Granted') return '—';
-  let total = 0;
+  if (scores['sleeping'] && scores['sleeping'] > 0) return '0';
+  let total = state.startingScore != null ? state.startingScore : 100;
   (state.gradingCriteria.plus || []).forEach(function (c) { total += (scores[c.id] || 0) * c.value; });
   (state.gradingCriteria.minus || []).forEach(function (c) { total -= (scores[c.id] || 0) * c.value; });
   if (st === 'Arrived Late') total -= state.attendanceValues.arrivedLate;
@@ -300,6 +305,7 @@ function gradingTotal(id) {
   const vol = pips.filter(function (p) { return p === 'green'; }).length;
   const rand = pips.filter(function (p) { return p === 'orange'; }).length;
   total += vol * state.attendanceValues.volunteer + rand * state.attendanceValues.randomCall;
+  total = Math.max(0, Math.min(100, total));
   return String(total);
 }
 
@@ -335,28 +341,27 @@ async function saveGrading(afterFn) {
 
 function buildCriterionRow(column, crit) {
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px;';
+  row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;';
   const count = gradingSelectedId ? (pendingScores[crit.id] || 0) : 0;
   const atLimit = crit.onceOnly && count >= 1;
 
-  const minusBtn = document.createElement('button');
-  minusBtn.textContent = '−';
-  minusBtn.style.cssText = 'width:24px;height:24px;padding:0;font-size:14px;line-height:1;';
-  minusBtn.disabled = !gradingSelectedId || count <= 0;
-  minusBtn.onclick = function () {
-    pendingScores[crit.id] = Math.max(0, (pendingScores[crit.id] || 0) - 1);
-    gradingDirty = true;
-    renderGradingPanel();
-    render();
-  };
-
   const label = document.createElement('span');
-  label.textContent = crit.label + (count ? ' (' + count + ')' : '');
+  label.textContent = crit.label;
   label.style.cssText = 'flex:1;' + (atLimit ? 'color:#999;' : '');
+
+  const valueInput = document.createElement('input');
+  valueInput.type = 'number';
+  valueInput.value = crit.value;
+  valueInput.style.cssText = 'width:46px;font-size:12px;';
+  valueInput.onchange = function () { setCriterionValue(column, crit.id, Number(valueInput.value)); };
+
+  const countLabel = document.createElement('span');
+  countLabel.textContent = 'x ' + count;
+  countLabel.style.cssText = 'font-weight:700;min-width:32px;text-align:center;' + (atLimit ? 'color:#999;' : '');
 
   const plusBtn = document.createElement('button');
   plusBtn.textContent = '+';
-  plusBtn.style.cssText = 'width:24px;height:24px;padding:0;font-size:14px;line-height:1;';
+  plusBtn.style.cssText = 'width:26px;height:26px;padding:0;font-size:14px;line-height:1;';
   plusBtn.disabled = !gradingSelectedId || atLimit;
   plusBtn.onclick = function () {
     pendingScores[crit.id] = (pendingScores[crit.id] || 0) + 1;
@@ -365,16 +370,33 @@ function buildCriterionRow(column, crit) {
     render();
   };
 
-  const valueInput = document.createElement('input');
-  valueInput.type = 'number';
-  valueInput.value = crit.value;
-  valueInput.style.cssText = 'width:46px;font-size:12px;';
-  valueInput.onchange = function () { setCriterionValue(column, crit.id, Number(valueInput.value)); };
+  const minusBtn = document.createElement('button');
+  minusBtn.textContent = '−';
+  minusBtn.style.cssText = 'width:26px;height:26px;padding:0;font-size:14px;line-height:1;';
+  minusBtn.disabled = !gradingSelectedId || count <= 0;
+  minusBtn.onclick = function () {
+    pendingScores[crit.id] = Math.max(0, (pendingScores[crit.id] || 0) - 1);
+    gradingDirty = true;
+    renderGradingPanel();
+    render();
+  };
 
-  row.appendChild(minusBtn);
+  const deleteBtn = document.createElement('button');
+  deleteBtn.textContent = '×';
+  deleteBtn.title = 'Delete this criterion';
+  deleteBtn.style.cssText = 'width:22px;height:22px;padding:0;font-size:13px;line-height:1;color:#999;border:none;background:none;cursor:pointer;';
+  deleteBtn.onclick = function () {
+    if (confirm('Delete "' + crit.label + '" from the ' + column + ' list?')) {
+      deleteCriterion(column, crit.id);
+    }
+  };
+
   row.appendChild(label);
   row.appendChild(valueInput);
+  row.appendChild(countLabel);
   row.appendChild(plusBtn);
+  row.appendChild(minusBtn);
+  row.appendChild(deleteBtn);
   return row;
 }
 
@@ -398,6 +420,7 @@ function renderGradingPanel() {
   const panel = document.getElementById('gradingPanel');
   if (!gradingMode) { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
+  document.getElementById('startingScoreInput').value = state.startingScore != null ? state.startingScore : 100;
   const plusList = document.getElementById('plusCriteriaList');
   const minusList = document.getElementById('minusCriteriaList');
   const refList = document.getElementById('referenceList');
