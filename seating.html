@@ -349,6 +349,10 @@ function buildCriterionRow(column, crit) {
   label.textContent = crit.label;
   label.style.cssText = 'flex:1;' + (atLimit ? 'color:#999;' : '');
 
+  const sign = document.createElement('span');
+  sign.textContent = column === 'minus' ? '−' : '+';
+  sign.style.cssText = 'font-weight:700;color:' + (column === 'minus' ? '#c0392b' : '#1a7f37') + ';';
+
   const valueInput = document.createElement('input');
   valueInput.type = 'number';
   valueInput.value = crit.value;
@@ -392,6 +396,7 @@ function buildCriterionRow(column, crit) {
   };
 
   row.appendChild(label);
+  row.appendChild(sign);
   row.appendChild(valueInput);
   row.appendChild(countLabel);
   row.appendChild(plusBtn);
