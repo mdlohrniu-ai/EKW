@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Weekly assignment</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 560px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }
+  h2 { font-size: 20px; }
+  input, textarea { font-size: 16px; padding: 10px; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 10px; }
+  textarea { min-height: 90px; }
+  button { font-size: 16px; padding: 12px 20px; cursor: pointer; width: 100%; border: 1px solid #333; border-radius: 6px; background: #fff; margin-bottom: 8px; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #error { color: #c0392b; margin-top: 8px; min-height: 20px; }
+  #topicBox { background: #f3f3f3; border-radius: 8px; padding: 14px 16px; margin: 16px 0; white-space: pre-wrap; }
+  .field-label { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  #status { font-size: 14px; margin-top: 10px; }
+  #loadingOverlay { display:none; position:fixed; inset:0; background:rgba(255,255,255,0.6); align-items:center; justify-content:center; z-index:50; }
+  .spinner { width:40px; height:40px; border:5px solid #ddd; border-top-color:#2d5c0d; border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div></div>
+
+<div id="loginStep">
+  <h2>Weekly assignment</h2>
+  <input type="text" id="studentId" placeholder="Enter your student number" inputmode="numeric">
+  <button id="findBtn">Continue</button>
+  <div id="error"></div>
+</div>
+
+<div id="formStep" style="display:none;">
+  <h2 id="greeting"></h2>
+  <div id="topicBox"></div>
+  <div id="prevNote" style="font-size:13px;color:#856404;background:#fff3cd;padding:8px 12px;border-radius:6px;display:none;margin-bottom:12px;"></div>
+  <div id="photoInputs"></div>
+  <div id="textInputs"></div>
+  <button id="submitBtn">Submit</button>
+  <div id="status"></div>
+</div>
+
+<script>
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
+let studentId = '', studentName = '', assignment = null;
+
+function showLoading() { document.getElementById('loadingOverlay').style.display = 'flex'; }
+function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+
+async function callAction(action, params) {
+  const qs = new URLSearchParams(Object.assign({ action: action }, params || {}));
+  const res = await fetch(WEBAPP_URL + '?' + qs.toString());
+  return res.json();
+}
+
+async function callActionPost(action, params) {
+  const body = new URLSearchParams(Object.assign({ action: action }, params || {}));
+  const res = await fetch(WEBAPP_URL, { method: 'POST', body: body });
+  return res.json();
+}
+
+function resizeImage(file, maxDim, quality) {
+  return new Promise(function (resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const img = new Image();
+      img.onload = function () {
+        let w = img.width, h = img.height;
+        if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+        else if (h >= w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('findBtn').onclick = async function () {
+  const id = document.getElementById('studentId').value.trim();
+  const errorEl = document.getElementById('error');
+  errorEl.textContent = '';
+  if (!id) { errorEl.textContent = 'Enter your student number first.'; return; }
+  showLoading();
+  try {
+    const stu = await callAction('getStudent', { studentId: id });
+    if (stu.error) { errorEl.textContent = "That student number wasn't found."; return; }
+    studentId = id; studentName = stu.name;
+    assignment = await callAction('getCurrentAssignment');
+    if (assignment.error) { errorEl.textContent = assignment.error; return; }
+    await buildForm();
+    document.getElementById('loginStep').style.display = 'none';
+    document.getElementById('formStep').style.display = 'block';
+  } catch (err) {
+    errorEl.textContent = 'Something went wrong. Check your connection and try again.';
+  } finally {
+    hideLoading();
+  }
+};
+
+async function buildForm() {
+  document.getElementById('greeting').textContent = 'Hi ' + studentName;
+  document.getElementById('topicBox').textContent = assignment.topic;
+
+  const prev = await callAction('getSubmission', { weekId: assignment.weekId, studentId: studentId });
+  const prevNote = document.getElementById('prevNote');
+  if (prev) {
+    prevNote.style.display = 'block';
+    prevNote.textContent = 'You already submitted this with ' + prev.photoLinks.length + ' photo(s). Submitting again will replace your previous answer.';
+  }
+
+  const photoDiv = document.getElementById('photoInputs');
+  photoDiv.innerHTML = '';
+  for (let i = 0; i < assignment.photoCount; i++) {
+    const label = document.createElement('div');
+    label.className = 'field-label';
+    label.textContent = 'Photo ' + (i + 1) + ' of ' + assignment.photoCount;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.className = 'photo-input';
+    photoDiv.appendChild(label);
+    photoDiv.appendChild(input);
+  }
+
+  const textDiv = document.getElementById('textInputs');
+  textDiv.innerHTML = '';
+  assignment.fieldInstructions.forEach(function (instruction, i) {
+    const label = document.createElement('div');
+    label.className = 'field-label';
+    label.textContent = instruction;
+    const textarea = document.createElement('textarea');
+    textarea.className = 'text-input';
+    if (prev && prev.responses[i]) textarea.value = prev.responses[i];
+    textDiv.appendChild(label);
+    textDiv.appendChild(textarea);
+  });
+}
+
+document.getElementById('submitBtn').onclick = async function () {
+  const btn = this;
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = '';
+  const photoInputs = Array.prototype.slice.call(document.querySelectorAll('.photo-input'));
+  const textInputs = Array.prototype.slice.call(document.querySelectorAll('.text-input'));
+  const missingText = textInputs.some(function (t) { return !t.value.trim(); });
+  if (missingText) { statusEl.textContent = 'Please fill in every text field before submitting.'; statusEl.style.color = '#c0392b'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+  showLoading();
+  try {
+    const photoData = [];
+    for (let i = 0; i < photoInputs.length; i++) {
+      const file = photoInputs[i].files[0];
+      if (!file) { statusEl.textContent = 'Please choose all ' + photoInputs.length + ' photo(s) before submitting.'; statusEl.style.color = '#c0392b'; btn.disabled = false; btn.textContent = 'Submit'; hideLoading(); return; }
+      const resized = await resizeImage(file, 1200, 0.75);
+      photoData.push(resized);
+    }
+    const responses = textInputs.map(function (t) { return t.value.trim(); });
+    const result = await callActionPost('submitAssignment', {
+      weekId: assignment.weekId, studentId: studentId, studentName: studentName,
+      responses: JSON.stringify(responses), photos: JSON.stringify(photoData)
+    });
+    if (result.error) { statusEl.textContent = 'Submission failed: ' + result.error; statusEl.style.color = '#c0392b'; }
+    else { statusEl.textContent = 'Submitted! You can come back and resubmit any time before class.'; statusEl.style.color = '#1a7f37'; }
+  } catch (err) {
+    statusEl.textContent = 'Something went wrong: ' + err.message;
+    statusEl.style.color = '#c0392b';
+  } finally {
+    hideLoading();
+    btn.disabled = false;
+    btn.textContent = 'Submit';
+  }
+};
+</script>
+</body>
+</html>

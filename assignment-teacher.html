@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Assignment portal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 20px; color: #1a1a1a; }
+  *, *::before, *::after { box-sizing: border-box; }
+  h2 { font-size: 18px; }
+  h3 { font-size: 15px; margin-bottom: 8px; }
+  input, textarea, select { font-size: 14px; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+  textarea { width: 100%; min-height: 70px; }
+  button { font-size: 14px; padding: 8px 14px; cursor: pointer; margin-right: 6px; margin-bottom: 6px; border: 1px solid #333; border-radius: 6px; background: #fff; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .field-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .field-row input { flex: 1; }
+  .sub-card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .thumb { width: 120px; height: 120px; object-fit: cover; border-radius: 6px; margin: 4px; cursor: pointer; }
+  #loadingOverlay { display:none; position:fixed; inset:0; background:rgba(255,255,255,0.6); align-items:center; justify-content:center; z-index:50; }
+  .spinner { width:40px; height:40px; border:5px solid #ddd; border-top-color:#2d5c0d; border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #presentView { display:none; }
+  #presentView .thumb-big { max-width: 90%; max-height: 60vh; border-radius: 8px; margin: 10px auto; display:block; }
+  .student-pick { display:block; width:100%; text-align:left; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div></div>
+
+<div id="loginGate" style="max-width:340px;margin:80px auto;text-align:center;">
+  <h2>Assignment portal login</h2>
+  <input type="password" id="pwInput" placeholder="Enter password" style="width:100%;">
+  <button id="pwSubmit" style="width:100%;margin-top:8px;">Enter</button>
+  <div id="pwError" style="color:#c0392b;margin-top:8px;"></div>
+</div>
+
+<div id="appContent" style="display:none;">
+<h2>Weekly assignment portal</h2>
+<button id="togglePresentBtn">Presentation mode</button>
+
+<div id="manageView">
+  <div class="card">
+    <h3>Current assignment</h3>
+    <div id="currentAssignmentBox">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h3>Create a new assignment</h3>
+    <input type="text" id="newLabel" placeholder="Label (e.g. Week 5)" style="width:100%;margin-bottom:8px;">
+    <textarea id="newTopic" placeholder="Topic / instructions for students"></textarea>
+    <div style="margin:8px 0;">Photos required: <input type="number" id="newPhotoCount" value="1" min="0" style="width:60px;"></div>
+    <div id="newFieldsList"></div>
+    <button id="addFieldBtn">+ Add text field</button>
+    <div style="margin-top:12px;"><button id="publishBtn">Publish new assignment</button></div>
+    <div id="publishStatus" style="font-size:13px;margin-top:6px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Review submissions</h3>
+    <select id="weekPicker" style="width:100%;margin-bottom:12px;"></select>
+    <div id="submissionsList"></div>
+  </div>
+</div>
+
+<div id="presentView">
+  <div style="display:flex;gap:20px;">
+    <div style="width:220px;flex-shrink:0;">
+      <h3>Pick a student</h3>
+      <div id="presentPicker"></div>
+    </div>
+    <div style="flex:1;">
+      <div id="presentDisplay" style="font-size:20px;"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyrLC65WFSm4-sYjiosqIemHh1XUpdcOL6XP6flOMsBqrShomfQZ_mUDkiLEheB6qGE/exec';
+let savedPassword = localStorage.getItem('assignmentPassword') || '';
+let history = [];
+let currentSubs = [];
+let selectedWeekId = null;
+
+function showLoading() { document.getElementById('loadingOverlay').style.display = 'flex'; }
+function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+
+async function callAction(action, params) {
+  showLoading();
+  try {
+    const qs = new URLSearchParams(Object.assign({ action: action, password: savedPassword }, params || {}));
+    const res = await fetch(WEBAPP_URL + '?' + qs.toString());
+    return await res.json();
+  } finally {
+    hideLoading();
+  }
+}
+
+async function tryLogin(pw) {
+  const res = await fetch(WEBAPP_URL + '?action=getAssignmentHistory&password=' + encodeURIComponent(pw));
+  const data = await res.json();
+  return !data.error;
+}
+
+document.getElementById('pwSubmit').onclick = async function () {
+  const pw = document.getElementById('pwInput').value;
+  const ok = await tryLogin(pw);
+  if (ok) {
+    savedPassword = pw;
+    localStorage.setItem('assignmentPassword', pw);
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    boot();
+  } else {
+    document.getElementById('pwError').textContent = 'Wrong password, try again.';
+  }
+};
+
+(async function initLogin() {
+  if (savedPassword && await tryLogin(savedPassword)) {
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    boot();
+  }
+})();
+
+async function boot() {
+  addFieldRow();
+  await loadCurrentAssignment();
+  await loadHistory();
+}
+
+async function loadCurrentAssignment() {
+  const cur = await callAction('getCurrentAssignment');
+  const box = document.getElementById('currentAssignmentBox');
+  if (cur.error) { box.textContent = cur.error; return; }
+  box.innerHTML = '<b>' + cur.label + '</b><br>' + cur.topic.replace(/\n/g, '<br>') +
+    '<br><span style="font-size:12px;color:#666;">' + cur.photoCount + ' photo(s), ' + cur.fieldInstructions.length + ' text field(s)</span>';
+}
+
+function addFieldRow(value) {
+  const list = document.getElementById('newFieldsList');
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Instructions for this text field';
+  input.value = value || '';
+  const removeBtn = document.createElement('button');
+  removeBtn.textContent = '×';
+  removeBtn.onclick = function () { row.remove(); };
+  row.appendChild(input);
+  row.appendChild(removeBtn);
+  list.appendChild(row);
+}
+document.getElementById('addFieldBtn').onclick = function () { addFieldRow(); };
+
+document.getElementById('publishBtn').onclick = async function () {
+  const label = document.getElementById('newLabel').value.trim();
+  const topic = document.getElementById('newTopic').value.trim();
+  const photoCount = Number(document.getElementById('newPhotoCount').value) || 0;
+  const fieldInputs = Array.prototype.slice.call(document.querySelectorAll('#newFieldsList input'));
+  const fields = fieldInputs.map(function (i) { return i.value.trim(); }).filter(Boolean);
+  const statusEl = document.getElementById('publishStatus');
+  if (!label || !topic) { statusEl.textContent = 'Label and topic are required.'; statusEl.style.color = '#c0392b'; return; }
+  const result = await callAction('createAssignment', { label: label, topic: topic, photoCount: photoCount, fieldInstructions: JSON.stringify(fields) });
+  if (result.error) { statusEl.textContent = result.error; statusEl.style.color = '#c0392b'; return; }
+  statusEl.textContent = 'Published! Students will see this the next time they log in.';
+  statusEl.style.color = '#1a7f37';
+  document.getElementById('newLabel').value = '';
+  document.getElementById('newTopic').value = '';
+  document.getElementById('newFieldsList').innerHTML = '';
+  addFieldRow();
+  await loadCurrentAssignment();
+  await loadHistory();
+};
+
+async function loadHistory() {
+  history = await callAction('getAssignmentHistory');
+  const picker = document.getElementById('weekPicker');
+  picker.innerHTML = '';
+  history.forEach(function (a) {
+    const opt = document.createElement('option');
+    opt.value = a.weekId;
+    opt.textContent = a.label;
+    picker.appendChild(opt);
+  });
+  if (history.length) { selectedWeekId = history[0].weekId; await loadSubmissions(); }
+}
+document.getElementById('weekPicker').onchange = async function () { selectedWeekId = this.value; await loadSubmissions(); };
+
+async function loadSubmissions() {
+  currentSubs = await callAction('getSubmissionsForWeek', { weekId: selectedWeekId });
+  const list = document.getElementById('submissionsList');
+  list.innerHTML = '';
+  if (!currentSubs.length) { list.textContent = 'No submissions yet for this week.'; return; }
+  currentSubs.forEach(function (sub) {
+    const card = document.createElement('div');
+    card.className = 'sub-card';
+    const photosHtml = sub.photoLinks.map(function (url) { return '<img class="thumb" src="' + url + '">'; }).join('');
+    const responsesHtml = sub.responses.map(function (r, i) { return '<div style="margin:4px 0;"><b>' + (history.find(function(a){return a.weekId===selectedWeekId;}).fieldInstructions[i] || ('Field ' + (i+1))) + ':</b> ' + r + '</div>'; }).join('');
+    card.innerHTML =
+      '<b>' + sub.studentName + '</b> (' + sub.studentId + ')<br>' +
+      '<div>' + photosHtml + '</div>' + responsesHtml +
+      '<div style="margin-top:8px;">Grade: <input type="text" class="grade-input" value="' + (sub.grade || '') + '" style="width:80px;"> ' +
+      'Comment: <input type="text" class="comment-input" value="' + (sub.comment || '') + '" style="width:250px;"> ' +
+      '<button class="save-grade-btn">Save</button></div>';
+    card.querySelector('.save-grade-btn').onclick = async function () {
+      const grade = card.querySelector('.grade-input').value;
+      const comment = card.querySelector('.comment-input').value;
+      await callAction('gradeSubmission', { weekId: selectedWeekId, studentId: sub.studentId, grade: grade, comment: comment });
+      this.textContent = 'Saved';
+      setTimeout(function () { document.querySelector('.save-grade-btn') && (document.querySelector('.save-grade-btn').textContent = 'Save'); }, 1500);
+    };
+    list.appendChild(card);
+  });
+}
+
+document.getElementById('togglePresentBtn').onclick = function () {
+  const manage = document.getElementById('manageView');
+  const present = document.getElementById('presentView');
+  const showingPresent = present.style.display === 'block';
+  manage.style.display = showingPresent ? 'block' : 'none';
+  present.style.display = showingPresent ? 'none' : 'block';
+  this.textContent = showingPresent ? 'Presentation mode' : 'Back to manage';
+  if (!showingPresent) renderPresentPicker();
+};
+
+function renderPresentPicker() {
+  const picker = document.getElementById('presentPicker');
+  picker.innerHTML = '';
+  currentSubs.forEach(function (sub) {
+    const btn = document.createElement('button');
+    btn.className = 'student-pick';
+    btn.textContent = sub.studentName;
+    btn.onclick = function () { showPresent(sub); };
+    picker.appendChild(btn);
+  });
+}
+
+function showPresent(sub) {
+  const assignment = history.find(function (a) { return a.weekId === selectedWeekId; });
+  const display = document.getElementById('presentDisplay');
+  const photosHtml = sub.photoLinks.map(function (url) { return '<img class="thumb-big" src="' + url + '">'; }).join('');
+  const responsesHtml = sub.responses.map(function (r, i) { return '<p><b>' + (assignment.fieldInstructions[i] || ('Field ' + (i+1))) + '</b><br>' + r + '</p>'; }).join('');
+  display.innerHTML = '<h2>' + sub.studentName + '</h2>' + photosHtml + responsesHtml;
+}
+</script>
+</body>
+</html>
