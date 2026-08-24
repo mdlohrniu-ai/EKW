@@ -562,15 +562,25 @@ function fitGrid() {
     wrapper.style.justifyContent = 'flex-start';
     return;
   }
-  wrapper.style.overflow = 'hidden';
-  wrapper.style.alignItems = 'flex-start';
-  wrapper.style.justifyContent = 'center';
   scene.style.transform = 'scale(1)';
   scene.style.transformOrigin = 'top center';
   const naturalWidth = scene.scrollWidth;
   const naturalHeight = scene.scrollHeight;
   if (!naturalWidth || !naturalHeight) return;
-  const scale = Math.min(wrapper.clientWidth / naturalWidth, wrapper.clientHeight / naturalHeight);
+  const widthScale = wrapper.clientWidth / naturalWidth;
+  const heightScale = wrapper.clientHeight / naturalHeight;
+  const fitScale = Math.min(widthScale, heightScale);
+  const MIN_LEGIBLE_SCALE = 0.55;
+  let scale;
+  if (fitScale < MIN_LEGIBLE_SCALE) {
+    scale = widthScale;
+    wrapper.style.overflow = 'auto';
+  } else {
+    scale = fitScale;
+    wrapper.style.overflow = 'hidden';
+  }
+  wrapper.style.alignItems = 'flex-start';
+  wrapper.style.justifyContent = 'center';
   scene.style.transform = 'scale(' + scale + ')';
 }
 window.addEventListener('resize', fitGrid);
@@ -723,7 +733,7 @@ document.getElementById('manualMoveBtn').onclick = function () {
 document.getElementById('randomizeBtn').onclick = randomizeSeating;
 document.getElementById('compactBtn').onclick = compactSeating;
 document.getElementById('callBtn').onclick = randomCall;
-document.getElementById('refreshBtn').onclick = loadState;
+document.getElementById('refreshBtn').onclick = async function () { await loadRoster(); await loadState(); };
 document.getElementById('resetBtn').onclick = async function () {
   if (confirm('Clear today\'s seating, absences, and engagement pips? This does not affect the roster or blocked desks.')) {
     applyStateResponse(await callAction('resetDay'));
