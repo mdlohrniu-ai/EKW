@@ -238,19 +238,26 @@ function render() {
     }
   }
   for (let p = 0; p < totalPairs; p++) {
-    if (p === lonelyIdx && mergeWithIdx >= 0) continue;
     const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
     const wrapper = document.createElement('div');
     wrapper.className = 'desk-wrap';
     wrapper.style.gridColumn = String(col + 1);
+    if (p === lonelyIdx && mergeWithIdx >= 0) {
+      wrapper.style.gridRow = String(row + 1);
+      wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
+      wrapper.appendChild(buildRowFromIds([]));
+      wrapper.appendChild(toggleBtn(p, false));
+      grid.appendChild(wrapper);
+      continue;
+    }
     if (state.blocked.indexOf(p) !== -1) {
       wrapper.style.gridRow = String(row + 1);
-      wrapper.style.cssText += ';border:2px dashed #ccc;border-radius:8px;padding:4px;background:#fafafa;opacity:0.5;';
+      wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;background:#fafafa;opacity:0.6;';
       wrapper.appendChild(buildRowFromIds([]));
       wrapper.appendChild(toggleBtn(p, true));
     } else if (p === mergeWithIdx) {
       wrapper.style.gridRow = (row + 1) + ' / span 2';
-      wrapper.style.cssText += ';border:2px solid #3b6d11;border-radius:8px;display:flex;flex-direction:column;gap:14px;padding:2px 0;';
+      wrapper.style.cssText += ';border:2px solid #2d5c0d;border-radius:8px;display:flex;flex-direction:column;gap:14px;padding:2px 0;';
       const topInner = document.createElement('div');
       topInner.style.padding = '4px';
       topInner.appendChild(buildRowFromIds(deskGroups[p]));
@@ -264,9 +271,9 @@ function render() {
       const isEmpty = deskGroups[p].length === 0;
       wrapper.style.gridRow = String(row + 1);
       if (isEmpty) {
-        wrapper.style.cssText += ';border:2px dashed #ddd;border-radius:8px;padding:4px;opacity:0.4;';
+        wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
       } else {
-        wrapper.style.cssText += ';border:2px solid #3b6d11;border-radius:8px;padding:4px;';
+        wrapper.style.cssText += ';border:2px solid #2d5c0d;border-radius:8px;padding:4px;';
       }
       wrapper.appendChild(buildRowFromIds(deskGroups[p]));
       wrapper.appendChild(toggleBtn(p, false));
@@ -279,7 +286,7 @@ function render() {
     const filler = document.createElement('div');
     filler.style.gridColumn = String(col + 1);
     filler.style.gridRow = String(row + 1);
-    filler.style.cssText += ';border:2px dashed #ddd;border-radius:8px;padding:4px;opacity:0.4;';
+    filler.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
     filler.appendChild(buildRowFromIds([]));
     grid.appendChild(filler);
   }
