@@ -404,14 +404,16 @@ function selectPresenting(sub) {
 }
 
 document.getElementById('exportGradesBtn').onclick = async function () {
+  const newTab = window.open('', '_blank');
   const assignment = history.find(function (a) { return a.weekId === selectedWeekId; });
   const data = await callAction('exportGrades', { weekId: selectedWeekId, label: assignment ? assignment.label : selectedWeekId });
   const panel = document.getElementById('exportGradesPanel');
   panel.style.display = 'block';
   if (data.saved && data.url) {
     panel.innerHTML = '<div style="font-size:13px;color:#1a7f37;">Opened in a new tab \u2014 ' + data.count + ' students.</div>';
-    window.open(data.url, '_blank');
+    if (newTab) { newTab.location = data.url; } else { window.open(data.url, '_blank'); }
   } else {
+    if (newTab) newTab.close();
     panel.innerHTML = '<div style="font-size:13px;color:#c0392b;">Could not create the export file. Check that the assignment grades folder is accessible.</div>';
   }
 };
