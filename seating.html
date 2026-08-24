@@ -43,8 +43,28 @@
   <button id="callBtn">Call random student</button>
   <button id="manualMoveBtn">Manual move</button>
   <button id="refreshBtn">Refresh</button>
-  <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
   <button id="exportBtn">Export attendance</button>
+  <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
+  <button id="gradingModeBtn" style="background:#f3e8ff;">Grading Mode</button>
+</div>
+<div id="gradingPanel" style="display:none;border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin-bottom:12px;background:#faf7ff;">
+  <div style="font-size:12px;color:#666;margin-bottom:10px;">Click a student to select them, then left-click a criterion to add it, right-click to remove one. Values are per-application; edit the number box to change how many points each is worth.</div>
+  <div style="display:flex;gap:28px;flex-wrap:wrap;">
+    <div style="min-width:220px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Positive</div>
+      <div id="plusCriteriaList"></div>
+      <button id="addPlusCriterionBtn" style="margin-top:6px;font-size:12px;">+ Add criteria</button>
+    </div>
+    <div style="min-width:220px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Negative</div>
+      <div id="minusCriteriaList"></div>
+      <button id="addMinusCriterionBtn" style="margin-top:6px;font-size:12px;">+ Add criteria</button>
+    </div>
+    <div style="min-width:200px;opacity:0.65;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Automatic (values only)</div>
+      <div id="referenceList"></div>
+    </div>
+  </div>
 </div>
 <div id="stat"></div>
 <div id="lateList"></div>
@@ -173,6 +193,7 @@ function applyStateResponse(data) {
   if (data.state) { state = data.state; lastMoved = data.moved || 0; }
   else { state = data; }
   syncClassInfoInputs();
+  renderGradingPanel();
   render();
 }
 
@@ -226,22 +247,127 @@ async function compactSeating() { applyStateResponse(await callAction('compactSe
 async function moveSeat(from, to) { applyStateResponse(await callAction('moveSeat', { from: from, to: to })); }
 
 let manualMove = false;
+let gradingMode = false;
+let gradingSelectedId = null;
+
+async function addCriterion(column, label) { applyStateResponse(await callAction('addCriterion', { column: column, label: label })); }
+async function setCriterionValue(column, critId, value) { applyStateResponse(await callAction('setCriterionValue', { column: column, critId: critId, value: value })); }
+async function setAttendanceValue(key, value) { applyStateResponse(await callAction('setAttendanceValue', { key: key, value: value })); }
+async function applyGrading(studentId, column, critId, delta) { applyStateResponse(await callAction('applyGrading', { studentId: studentId, column: column, critId: critId, delta: delta })); }
+
+function gradingTotal(id) {
+  const scores = (state.gradingScores && state.gradingScores[id]) || {};
+  const st = statusFor(id);
+  if (state.absent.indexOf(id) !== -1 && st !== 'Attendance Granted') return '0';
+  if (st === 'Attendance Granted') return '—';
+  let total = 0;
+  (state.gradingCriteria.plus || []).forEach(function (c) { total += (scores[c.id] || 0) * c.value; });
+  (state.gradingCriteria.minus || []).forEach(function (c) { total -= (scores[c.id] || 0) * c.value; });
+  if (st === 'Arrived Late') total -= state.attendanceValues.arrivedLate;
+  if (st === 'Left Early') total -= state.attendanceValues.leftEarly;
+  const pips = pipsFor(id);
+  const vol = pips.filter(function (p) { return p === 'green'; }).length;
+  const rand = pips.filter(function (p) { return p === 'orange'; }).length;
+  total += vol * state.attendanceValues.volunteer + rand * state.attendanceValues.randomCall;
+  return String(total);
+}
+
+function buildCriterionRow(column, crit) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px;';
+  const label = document.createElement('span');
+  label.textContent = crit.label;
+  label.style.cssText = 'cursor:pointer;flex:1;';
+  label.title = 'Left-click to add for the selected student, right-click to remove one';
+  label.onclick = function () {
+    if (!gradingSelectedId) { alert('Click a student first to select them.'); return; }
+    applyGrading(gradingSelectedId, column, crit.id, 1);
+  };
+  label.oncontextmenu = function (e) {
+    e.preventDefault();
+    if (!gradingSelectedId) return;
+    applyGrading(gradingSelectedId, column, crit.id, -1);
+  };
+  const valueInput = document.createElement('input');
+  valueInput.type = 'number';
+  valueInput.value = crit.value;
+  valueInput.style.cssText = 'width:50px;font-size:12px;';
+  valueInput.onchange = function () { setCriterionValue(column, crit.id, Number(valueInput.value)); };
+  row.appendChild(label);
+  row.appendChild(valueInput);
+  return row;
+}
+
+function buildReferenceRow(labelText, key) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px;';
+  const label = document.createElement('span');
+  label.textContent = labelText;
+  label.style.flex = '1';
+  const valueInput = document.createElement('input');
+  valueInput.type = 'number';
+  valueInput.value = state.attendanceValues[key];
+  valueInput.style.cssText = 'width:50px;font-size:12px;';
+  valueInput.onchange = function () { setAttendanceValue(key, Number(valueInput.value)); };
+  row.appendChild(label);
+  row.appendChild(valueInput);
+  return row;
+}
+
+function renderGradingPanel() {
+  const panel = document.getElementById('gradingPanel');
+  if (!gradingMode) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  const plusList = document.getElementById('plusCriteriaList');
+  const minusList = document.getElementById('minusCriteriaList');
+  const refList = document.getElementById('referenceList');
+  plusList.innerHTML = '';
+  minusList.innerHTML = '';
+  refList.innerHTML = '';
+  (state.gradingCriteria.plus || []).forEach(function (c) { plusList.appendChild(buildCriterionRow('plus', c)); });
+  (state.gradingCriteria.minus || []).forEach(function (c) { minusList.appendChild(buildCriterionRow('minus', c)); });
+  refList.appendChild(buildReferenceRow('Arrived Late', 'arrivedLate'));
+  refList.appendChild(buildReferenceRow('Left Early', 'leftEarly'));
+  refList.appendChild(buildReferenceRow('Volunteered', 'volunteer'));
+  refList.appendChild(buildReferenceRow('Randomly Called', 'randomCall'));
+}
+
+document.getElementById('gradingModeBtn').onclick = function () {
+  gradingMode = !gradingMode;
+  gradingSelectedId = null;
+  this.style.background = gradingMode ? '#c084fc' : '#f3e8ff';
+  renderGradingPanel();
+  render();
+};
+document.getElementById('addPlusCriterionBtn').onclick = function () {
+  const label = prompt('New positive criterion name:');
+  if (label) addCriterion('plus', label);
+};
+document.getElementById('addMinusCriterionBtn').onclick = function () {
+  const label = prompt('New negative criterion name:');
+  if (label) addCriterion('minus', label);
+};
 
 function buildChip(id) {
   const el = document.createElement('div');
   const isAbsent = state.absent.indexOf(id) !== -1;
   const isPicked = state.lastPicked === id;
+  const isSelected = gradingMode && gradingSelectedId === id;
   const filled = pipCount(id);
   el.style.cssText = 'width:78px;height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2px;overflow:hidden;flex-shrink:0;';
   el.style.background = isAbsent ? '#eee' : '#0c447c';
   el.style.color = isAbsent ? '#888' : '#e6f1fb';
-  el.style.border = isPicked ? '4px solid #16a34a' : '2px solid transparent';
+  el.style.border = isSelected ? '4px solid #9333ea' : (isPicked ? '4px solid #16a34a' : '2px solid transparent');
   const nameDiv = document.createElement('div');
   nameDiv.style.cssText = 'cursor:pointer;';
   const badge = STATUS_BADGE[statusFor(id)];
-  nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>' + (badge ? '<div style="font-size:9px;opacity:0.85;">' + badge + '</div>' : '');
-  nameDiv.onclick = function () { toggleAbsent(id); };
-  nameDiv.oncontextmenu = function (e) { e.preventDefault(); e.stopPropagation(); showStatusMenu(e.clientX, e.clientY, id); };
+  const gradingBadge = gradingMode ? '<div style="font-size:9px;font-weight:700;opacity:0.9;">' + gradingTotal(id) + ' pts</div>' : '';
+  nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>' + (badge ? '<div style="font-size:9px;opacity:0.85;">' + badge + '</div>' : '') + gradingBadge;
+  nameDiv.onclick = function () {
+    if (gradingMode) { gradingSelectedId = id; render(); }
+    else { toggleAbsent(id); }
+  };
+  nameDiv.oncontextmenu = function (e) { e.preventDefault(); e.stopPropagation(); if (!gradingMode) showStatusMenu(e.clientX, e.clientY, id); };
   el.appendChild(nameDiv);
   const pipRow = document.createElement('div');
   pipRow.style.cssText = 'display:flex;gap:2px;margin-top:3px;';
@@ -420,7 +546,8 @@ function renderManualGrid() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   const totalPairs = state.seats.length / 2;
-  for (let p = 0; p < totalPairs; p++) {
+  const displayPairs = Math.ceil(Math.max(totalPairs, 1) / COLUMNS) * COLUMNS;
+  for (let p = 0; p < displayPairs; p++) {
     const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
     const isBlocked = state.blocked.indexOf(p) !== -1;
     const wrapper = document.createElement('div');
