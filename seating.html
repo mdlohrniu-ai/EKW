@@ -49,6 +49,7 @@
   <button id="exportBtn">Export attendance</button>
   <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
   <button id="gradingModeBtn" style="background:#f3e8ff;">Grading Mode</button>
+  <button id="downloadPdfBtn">Download seating chart</button>
 </div>
 <div id="gradingPanel" style="display:none;border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin-bottom:12px;background:#faf7ff;">
   <div style="font-size:12px;color:#666;margin-bottom:6px;">Click a student to select them, then use the + and − buttons to apply or remove a criterion. Edit the number box to change how many points each is worth. Nothing saves until you click "Save grades for this student."</div>
@@ -89,6 +90,14 @@
   <div style="width:44px;height:44px;border:5px solid #ddd;border-top-color:#2d5c0d;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
 </div>
 <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+<style>
+@media print {
+  @page { size: portrait; margin: 0.3in; }
+  #header, #loginGate, #statusMenu, #loadingOverlay, #gradingPanel { display: none !important; }
+  body, #appContent, #gridWrapper { height: auto !important; overflow: visible !important; }
+  .desk-toggle { display: none !important; }
+}
+</style>
 </div>
 
 <script>
@@ -461,6 +470,20 @@ document.getElementById('gradingModeBtn').onclick = function () {
   fitGrid();
   render();
 };
+
+document.getElementById('downloadPdfBtn').onclick = function () {
+  const scene = document.getElementById('scene');
+  scene.style.transform = 'scale(1)';
+  const naturalWidth = scene.scrollWidth;
+  const naturalHeight = scene.scrollHeight;
+  const PAGE_W = 750;
+  const PAGE_H = 980;
+  const scale = Math.min(PAGE_W / naturalWidth, PAGE_H / naturalHeight, 4);
+  scene.style.transform = 'scale(' + scale + ')';
+  scene.style.transformOrigin = 'top left';
+  window.print();
+};
+window.addEventListener('afterprint', function () { fitGrid(); });
 document.getElementById('addPlusCriterionBtn').onclick = function () {
   const label = prompt('New positive criterion name:');
   if (label) addCriterion('plus', label);
@@ -589,82 +612,86 @@ function render() {
   if (manualMove) { renderManualGrid(); return; }
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
-  const totalPairs = state.seats.length / 2;
-  const deskGroups = [];
-  for (let p = 0; p < totalPairs; p++) {
-    const a = state.seats[p * 2], b = state.seats[p * 2 + 1];
-    const occs = [];
-    if (a && a.occ !== null && state.absent.indexOf(a.occ) === -1) occs.push(a.occ);
-    if (b && b.occ !== null && state.absent.indexOf(b.occ) === -1) occs.push(b.occ);
-    deskGroups.push(occs);
-  }
-  let lonelyIdx = -1;
-  for (let p = totalPairs - 1; p >= 0; p--) {
-    if (state.blocked.indexOf(p) === -1 && deskGroups[p].length === 1) { lonelyIdx = p; break; }
-  }
-  let mergeWithIdx = -1;
-  if (lonelyIdx >= 0) {
-    const front = lonelyIdx - COLUMNS;
-    if (front >= 0 && state.blocked.indexOf(front) === -1 && deskGroups[front].length === 2) { mergeWithIdx = front; }
-    else {
-      const prev = lonelyIdx - 1;
-      if (prev >= 0 && state.blocked.indexOf(prev) === -1 && deskGroups[prev].length === 2) { mergeWithIdx = prev; }
+  try {
+    const totalPairs = state.seats.length / 2;
+    const deskGroups = [];
+    for (let p = 0; p < totalPairs; p++) {
+      const a = state.seats[p * 2], b = state.seats[p * 2 + 1];
+      const occs = [];
+      if (a && a.occ !== null && state.absent.indexOf(a.occ) === -1) occs.push(a.occ);
+      if (b && b.occ !== null && state.absent.indexOf(b.occ) === -1) occs.push(b.occ);
+      deskGroups.push(occs);
     }
-  }
-  for (let p = 0; p < totalPairs; p++) {
-    const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'desk-wrap';
-    wrapper.style.gridColumn = String(col + 1);
-    if (p === lonelyIdx && mergeWithIdx >= 0) {
-      wrapper.style.gridRow = String(row + 1);
-      wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
-      wrapper.appendChild(buildRowFromIds([]));
-      wrapper.appendChild(toggleBtn(p, false));
-      grid.appendChild(wrapper);
-      continue;
+    let lonelyIdx = -1;
+    for (let p = totalPairs - 1; p >= 0; p--) {
+      if (state.blocked.indexOf(p) === -1 && deskGroups[p].length === 1) { lonelyIdx = p; break; }
     }
-    if (state.blocked.indexOf(p) !== -1) {
-      wrapper.style.gridRow = String(row + 1);
-      wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;background:#fafafa;opacity:0.6;';
-      wrapper.appendChild(buildRowFromIds([]));
-      wrapper.appendChild(toggleBtn(p, true));
-    } else if (p === mergeWithIdx) {
-      wrapper.style.gridRow = (row + 1) + ' / span 2';
-      wrapper.style.cssText += ';border:2px solid #2d5c0d;border-radius:8px;display:flex;flex-direction:column;gap:14px;padding:2px 0;';
-      const topInner = document.createElement('div');
-      topInner.style.padding = '4px';
-      topInner.appendChild(buildRowFromIds(deskGroups[p]));
-      const bottomInner = document.createElement('div');
-      bottomInner.style.padding = '4px';
-      bottomInner.appendChild(buildTrioBottomRow(deskGroups[lonelyIdx]));
-      wrapper.appendChild(topInner);
-      wrapper.appendChild(bottomInner);
-      wrapper.appendChild(toggleBtn(p, false));
-    } else {
-      const isEmpty = deskGroups[p].length === 0;
-      wrapper.style.gridRow = String(row + 1);
-      if (isEmpty) {
-        wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
-      } else {
-        wrapper.style.cssText += ';border:2px solid #2d5c0d;border-radius:8px;padding:4px;';
+    let mergeWithIdx = -1;
+    if (lonelyIdx >= 0) {
+      const front = lonelyIdx - COLUMNS;
+      if (front >= 0 && state.blocked.indexOf(front) === -1 && deskGroups[front].length === 2) { mergeWithIdx = front; }
+      else {
+        const prev = lonelyIdx - 1;
+        if (prev >= 0 && state.blocked.indexOf(prev) === -1 && deskGroups[prev].length === 2) { mergeWithIdx = prev; }
       }
-      wrapper.appendChild(buildRowFromIds(deskGroups[p]));
-      wrapper.appendChild(toggleBtn(p, false));
     }
-    grid.appendChild(wrapper);
+    for (let p = 0; p < totalPairs; p++) {
+      const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'desk-wrap';
+      wrapper.style.gridColumn = String(col + 1);
+      if (p === lonelyIdx && mergeWithIdx >= 0) {
+        wrapper.style.gridRow = String(row + 1);
+        wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
+        wrapper.appendChild(buildRowFromIds([]));
+        wrapper.appendChild(toggleBtn(p, false));
+        grid.appendChild(wrapper);
+        continue;
+      }
+      if (state.blocked.indexOf(p) !== -1) {
+        wrapper.style.gridRow = String(row + 1);
+        wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;background:#fafafa;opacity:0.6;';
+        wrapper.appendChild(buildRowFromIds([]));
+        wrapper.appendChild(toggleBtn(p, true));
+      } else if (p === mergeWithIdx) {
+        wrapper.style.gridRow = (row + 1) + ' / span 2';
+        wrapper.style.cssText += ';border:2px solid #2d5c0d;border-radius:8px;display:flex;flex-direction:column;gap:14px;padding:2px 0;';
+        const topInner = document.createElement('div');
+        topInner.style.padding = '4px';
+        topInner.appendChild(buildRowFromIds(deskGroups[p]));
+        const bottomInner = document.createElement('div');
+        bottomInner.style.padding = '4px';
+        bottomInner.appendChild(buildTrioBottomRow(deskGroups[lonelyIdx]));
+        wrapper.appendChild(topInner);
+        wrapper.appendChild(bottomInner);
+        wrapper.appendChild(toggleBtn(p, false));
+      } else {
+        const isEmpty = deskGroups[p].length === 0;
+        wrapper.style.gridRow = String(row + 1);
+        if (isEmpty) {
+          wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
+        } else {
+          wrapper.style.cssText += ';border:2px solid #2d5c0d;border-radius:8px;padding:4px;';
+        }
+        wrapper.appendChild(buildRowFromIds(deskGroups[p]));
+        wrapper.appendChild(toggleBtn(p, false));
+      }
+      grid.appendChild(wrapper);
+    }
+    const displayPairs = Math.ceil(totalPairs / COLUMNS) * COLUMNS;
+    for (let p = totalPairs; p < displayPairs; p++) {
+      const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
+      const filler = document.createElement('div');
+      filler.style.gridColumn = String(col + 1);
+      filler.style.gridRow = String(row + 1);
+      filler.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
+      filler.appendChild(buildRowFromIds([]));
+      grid.appendChild(filler);
+    }
+    fitGrid();
+  } catch (err) {
+    grid.innerHTML = '<div style="color:#c0392b;padding:16px;max-width:500px;">Something went wrong displaying the seating chart: ' + err.message + '. Try Randomize seating or Reset for next class. Please screenshot this message if you can.</div>';
   }
-  const displayPairs = Math.ceil(totalPairs / COLUMNS) * COLUMNS;
-  for (let p = totalPairs; p < displayPairs; p++) {
-    const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
-    const filler = document.createElement('div');
-    filler.style.gridColumn = String(col + 1);
-    filler.style.gridRow = String(row + 1);
-    filler.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
-    filler.appendChild(buildRowFromIds([]));
-    grid.appendChild(filler);
-  }
-  fitGrid();
   const presentCount = roster.filter(function (r) { return state.absent.indexOf(r.id) === -1; }).length;
   document.getElementById('stat').textContent = roster.length + ' on roster, ' + state.absent.length + ' absent, ' + presentCount + ' present, ' + state.blocked.length + ' desks blocked, last compact moved ' + lastMoved;
   const unseatedAbsent = roster.filter(function (r) { return state.absent.indexOf(r.id) !== -1; });
@@ -685,41 +712,82 @@ function render() {
   }
 }
 
+function buildManualRow(pairIndex, isBlocked) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:4px;';
+  [pairIndex * 2, pairIndex * 2 + 1].forEach(function (seatIdx) {
+    const seat = state.seats[seatIdx];
+    const occ = seat ? seat.occ : null;
+    const cell = occ !== null ? buildChip(occ) : emptySlot();
+    if (!isBlocked) {
+      cell.draggable = true;
+      cell.style.cursor = 'grab';
+      cell.ondragstart = function (e) { e.dataTransfer.setData('text/plain', String(seatIdx)); };
+      cell.ondragover = function (e) { e.preventDefault(); };
+      cell.ondrop = function (e) {
+        e.preventDefault();
+        const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+        if (fromIdx !== seatIdx) moveSeat(fromIdx, seatIdx);
+      };
+    }
+    row.appendChild(cell);
+  });
+  return row;
+}
+
 function renderManualGrid() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
-  const totalPairs = state.seats.length / 2;
-  const displayPairs = Math.ceil(Math.max(totalPairs, 1) / COLUMNS) * COLUMNS;
-  for (let p = 0; p < displayPairs; p++) {
-    const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
-    const isBlocked = state.blocked.indexOf(p) !== -1;
-    const wrapper = document.createElement('div');
-    wrapper.style.gridColumn = String(col + 1);
-    wrapper.style.gridRow = String(row + 1);
-    wrapper.style.cssText = isBlocked
-      ? 'border:2px dashed #999;border-radius:8px;padding:4px;background:#fafafa;opacity:0.6;'
-      : 'border:2px solid #2d5c0d;border-radius:8px;padding:4px;';
-    const rowDiv = document.createElement('div');
-    rowDiv.style.cssText = 'display:flex;gap:4px;';
-    [p * 2, p * 2 + 1].forEach(function (seatIdx) {
-      const seat = state.seats[seatIdx];
-      const occ = seat ? seat.occ : null;
-      const cell = occ !== null ? buildChip(occ) : emptySlot();
-      if (!isBlocked) {
-        cell.draggable = true;
-        cell.style.cursor = 'grab';
-        cell.ondragstart = function (e) { e.dataTransfer.setData('text/plain', String(seatIdx)); };
-        cell.ondragover = function (e) { e.preventDefault(); };
-        cell.ondrop = function (e) {
-          e.preventDefault();
-          const fromIdx = Number(e.dataTransfer.getData('text/plain'));
-          if (fromIdx !== seatIdx) moveSeat(fromIdx, seatIdx);
-        };
+  try {
+    const totalPairs = state.seats.length / 2;
+    const deskGroups = [];
+    for (let p = 0; p < totalPairs; p++) {
+      const a = state.seats[p * 2], b = state.seats[p * 2 + 1];
+      const occs = [];
+      if (a && a.occ !== null) occs.push(a.occ);
+      if (b && b.occ !== null) occs.push(b.occ);
+      deskGroups.push(occs);
+    }
+    let lonelyIdx = -1;
+    for (let p = totalPairs - 1; p >= 0; p--) {
+      if (state.blocked.indexOf(p) === -1 && deskGroups[p].length === 1) { lonelyIdx = p; break; }
+    }
+    let mergeWithIdx = -1;
+    if (lonelyIdx >= 0) {
+      const front = lonelyIdx - COLUMNS;
+      if (front >= 0 && state.blocked.indexOf(front) === -1 && deskGroups[front].length === 2) { mergeWithIdx = front; }
+      else {
+        const prev = lonelyIdx - 1;
+        if (prev >= 0 && state.blocked.indexOf(prev) === -1 && deskGroups[prev].length === 2) { mergeWithIdx = prev; }
       }
-      rowDiv.appendChild(cell);
-    });
-    wrapper.appendChild(rowDiv);
-    grid.appendChild(wrapper);
+    }
+    const displayPairs = Math.ceil(Math.max(totalPairs, 1) / COLUMNS) * COLUMNS;
+    for (let p = 0; p < displayPairs; p++) {
+      if (p === lonelyIdx && mergeWithIdx >= 0) continue;
+      const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
+      const isBlocked = state.blocked.indexOf(p) !== -1;
+      const wrapper = document.createElement('div');
+      wrapper.style.gridColumn = String(col + 1);
+      if (p === mergeWithIdx) {
+        wrapper.style.gridRow = (row + 1) + ' / span 2';
+        wrapper.style.cssText = 'border:2px solid #2d5c0d;border-radius:8px;display:flex;flex-direction:column;gap:14px;padding:2px 0;';
+        const topInner = document.createElement('div'); topInner.style.padding = '4px';
+        topInner.appendChild(buildManualRow(p, false));
+        const bottomInner = document.createElement('div'); bottomInner.style.padding = '4px';
+        bottomInner.appendChild(buildManualRow(lonelyIdx, false));
+        wrapper.appendChild(topInner);
+        wrapper.appendChild(bottomInner);
+      } else {
+        wrapper.style.gridRow = String(row + 1);
+        wrapper.style.cssText = isBlocked
+          ? 'border:2px dashed #999;border-radius:8px;padding:4px;background:#fafafa;opacity:0.6;'
+          : 'border:2px solid #2d5c0d;border-radius:8px;padding:4px;';
+        wrapper.appendChild(buildManualRow(p, isBlocked));
+      }
+      grid.appendChild(wrapper);
+    }
+  } catch (err) {
+    grid.innerHTML = '<div style="color:#c0392b;padding:16px;max-width:500px;">Something went wrong displaying manual move: ' + err.message + '. Try turning Manual move off and back on, or use Randomize seating to reset the layout. Please screenshot this message if you can.</div>';
   }
   fitGrid();
 }
