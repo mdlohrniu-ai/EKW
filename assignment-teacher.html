@@ -71,6 +71,8 @@
   <h3>Review submissions</h3>
   <select id="weekPicker" style="width:100%;margin-bottom:12px;"></select>
   <div id="submissionsList"></div>
+  <button id="exportGradesBtn" style="margin-top:10px;">Export grades for this week</button>
+  <div id="exportGradesPanel" style="display:none;margin-top:10px;"></div>
 </div>
 
 <div class="card">
@@ -122,14 +124,25 @@ if (isPresentMode) {
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('appContent').style.display = 'none';
   document.getElementById('presentOnlyView').style.display = 'block';
-  window.showSubmission = function (sub, fieldInstructions) {
+
+  function renderPresentData(data) {
+    if (!data) return;
     const display = document.getElementById('presentDisplay');
-    const photosHtml = (sub.photoLinks || []).map(function (url) { return '<img src="' + url + '">'; }).join('');
-    const responsesHtml = (sub.responses || []).map(function (r, i) {
-      return '<p><b>' + (fieldInstructions[i] || ('Field ' + (i + 1))) + '</b><br>' + r + '</p>';
+    const photosHtml = (data.sub.photoLinks || []).map(function (url) { return '<img src="' + url + '">'; }).join('');
+    const responsesHtml = (data.sub.responses || []).map(function (r, i) {
+      return '<p><b>' + (data.fieldInstructions[i] || ('Field ' + (i + 1))) + '</b><br>' + r + '</p>';
     }).join('');
-    display.innerHTML = '<h1>' + sub.studentName + '</h1>' + photosHtml + responsesHtml;
-  };
+    display.innerHTML = '<h1>' + data.sub.studentName + '</h1>' + photosHtml + responsesHtml;
+  }
+
+  const initial = localStorage.getItem('presentData');
+  if (initial) { try { renderPresentData(JSON.parse(initial)); } catch (e) {} }
+
+  window.addEventListener('storage', function (e) {
+    if (e.key === 'presentData' && e.newValue) {
+      try { renderPresentData(JSON.parse(e.newValue)); } catch (err) {}
+    }
+  });
 }
 
 document.getElementById('pwSubmit').onclick = async function () {
@@ -384,13 +397,22 @@ function renderPresentPicker() {
 
 function selectPresenting(sub) {
   const assignment = history.find(function (a) { return a.weekId === selectedWeekId; });
-  if (presentWin && !presentWin.closed && presentWin.showSubmission) {
-    presentWin.showSubmission(sub, assignment.fieldInstructions);
-  }
+  localStorage.setItem('presentData', JSON.stringify({ sub: sub, fieldInstructions: assignment.fieldInstructions, ts: Date.now() }));
   const area = document.getElementById('presentGradeArea');
   area.innerHTML = '<h4>' + sub.studentName + '</h4>';
   renderRubricBlock('presentation', sub, selectedWeekId, area);
 }
+
+document.getElementById('exportGradesBtn').onclick = async function () {
+  const assignment = history.find(function (a) { return a.weekId === selectedWeekId; });
+  const data = await callAction('exportGrades', { weekId: selectedWeekId, label: assignment ? assignment.label : selectedWeekId });
+  const panel = document.getElementById('exportGradesPanel');
+  panel.style.display = 'block';
+  panel.innerHTML =
+    '<div style="font-size:13px;color:' + (data.saved ? '#1a7f37' : '#c0392b') + ';margin-bottom:6px;">' +
+    (data.saved ? '\u2713 Saved a record to your Drive folder.' : '\u26a0 Could not save a Drive record \u2014 the list below still works.') + '</div>' +
+    '<textarea readonly style="width:100%;height:140px;font-size:12px;">' + data.list + '</textarea>';
+};
 </script>
 </body>
 </html>
