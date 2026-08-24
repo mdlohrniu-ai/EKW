@@ -37,15 +37,18 @@
   <button id="randomizeBtn">Randomize seating</button>
   <button id="compactBtn">Compact</button>
   <button id="callBtn">Call random student</button>
+  <button id="manualMoveBtn">Manual move</button>
   <button id="refreshBtn">Refresh</button>
   <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
+  <button id="exportBtn">Export attendance</button>
 </div>
 <div id="stat"></div>
 <div id="lateList"></div>
-<div style="font-size:12px;color:#777;margin-bottom:6px;">click a name to mark absent. left-click the next open pip for volunteered, right-click for randomly called. hover a desk to block it</div>
+<div style="font-size:12px;color:#777;margin-bottom:6px;white-space:nowrap;">Click a name to mark absent. Left-click the next open pip for volunteered, right-click for randomly called. Hover a desk to block it.</div>
 <div style="font-size:11px;color:#999;margin-bottom:6px;">front of class, reading order</div>
 </div>
 <div id="gridWrapper"><div id="grid"></div></div>
+<div id="statusMenu" style="display:none;position:fixed;background:#fff;border:1px solid #999;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.25);z-index:10;padding:4px 0;"></div>
 </div>
 
 <script>
@@ -54,9 +57,58 @@ const COLUMNS = 4;
 const POLL_MS = 15000;
 
 let roster = [];
-let state = { seats: [], absent: [], blocked: [], pips: {}, lastPicked: null, activePairCount: 0 };
+let state = { seats: [], absent: [], blocked: [], pips: {}, lastPicked: null, activePairCount: 0, attendanceStatus: {} };
 let lastMoved = 0;
 let savedPassword = localStorage.getItem('seatingPassword') || '';
+
+const STATUSES = ['Attended', 'Attendance Granted', 'Left Early', 'Arrived Late', 'No Information'];
+const STATUS_BADGE = { 'Attendance Granted': 'Granted', 'Left Early': 'Left early', 'Arrived Late': 'Late' };
+
+function statusFor(id) {
+  if (state.attendanceStatus && state.attendanceStatus[id]) return state.attendanceStatus[id];
+  return state.absent.indexOf(id) !== -1 ? 'No Information' : 'Attended';
+}
+
+async function setStatus(id, status) { applyStateResponse(await callAction('setStatus', { studentId: id, status: status })); }
+
+function showStatusMenu(x, y, id) {
+  const menu = document.getElementById('statusMenu');
+  menu.innerHTML = '';
+  STATUSES.forEach(function (s) {
+    const item = document.createElement('div');
+    item.textContent = s;
+    item.style.cssText = 'padding:6px 16px;cursor:pointer;font-size:13px;white-space:nowrap;';
+    item.onmouseover = function () { item.style.background = '#f0f0f0'; };
+    item.onmouseout = function () { item.style.background = ''; };
+    item.onclick = function () { setStatus(id, s); menu.style.display = 'none'; };
+    menu.appendChild(item);
+  });
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.display = 'block';
+}
+document.addEventListener('click', function () { document.getElementById('statusMenu').style.display = 'none'; });
+
+document.getElementById('exportBtn').onclick = async function () {
+  const session = prompt('Session name for this export (e.g. "Class #31-1"):', '');
+  if (session === null) return;
+  const btn = this;
+  btn.textContent = 'Exporting...';
+  btn.disabled = true;
+  try {
+    const data = await callAction('exportAttendance', { session: session });
+    if (data.error) { alert('Export failed: ' + data.error); return; }
+    const link = document.createElement('a');
+    link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + data.file;
+    link.download = data.filename;
+    link.click();
+  } catch (err) {
+    alert('Export failed: ' + err);
+  } finally {
+    btn.textContent = 'Export attendance';
+    btn.disabled = false;
+  }
+};
 
 async function callAction(action, params) {
   const qs = new URLSearchParams(Object.assign({ action: action, password: savedPassword }, params || {}));
@@ -124,6 +176,9 @@ async function removeLastPip(id) { applyStateResponse(await callAction('removeLa
 async function randomCall() { applyStateResponse(await callAction('randomCall')); }
 async function randomizeSeating() { applyStateResponse(await callAction('randomizeSeating')); }
 async function compactSeating() { applyStateResponse(await callAction('compactSeating')); }
+async function moveSeat(from, to) { applyStateResponse(await callAction('moveSeat', { from: from, to: to })); }
+
+let manualMove = false;
 
 function buildChip(id) {
   const el = document.createElement('div');
@@ -136,8 +191,10 @@ function buildChip(id) {
   el.style.border = isPicked ? '4px solid #16a34a' : '2px solid transparent';
   const nameDiv = document.createElement('div');
   nameDiv.style.cssText = 'cursor:pointer;';
-  nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>';
+  const badge = STATUS_BADGE[statusFor(id)];
+  nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>' + (badge ? '<div style="font-size:9px;opacity:0.85;">' + badge + '</div>' : '');
   nameDiv.onclick = function () { toggleAbsent(id); };
+  nameDiv.oncontextmenu = function (e) { e.preventDefault(); e.stopPropagation(); showStatusMenu(e.clientX, e.clientY, id); };
   el.appendChild(nameDiv);
   const pipRow = document.createElement('div');
   pipRow.style.cssText = 'display:flex;gap:2px;margin-top:3px;';
@@ -213,6 +270,7 @@ function fitGrid() {
 window.addEventListener('resize', fitGrid);
 
 function render() {
+  if (manualMove) { renderManualGrid(); return; }
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   const totalPairs = state.seats.length / 2;
@@ -311,6 +369,50 @@ function render() {
   }
 }
 
+function renderManualGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  const totalPairs = state.seats.length / 2;
+  for (let p = 0; p < totalPairs; p++) {
+    const row = Math.floor(p / COLUMNS), col = p % COLUMNS;
+    const isBlocked = state.blocked.indexOf(p) !== -1;
+    const wrapper = document.createElement('div');
+    wrapper.style.gridColumn = String(col + 1);
+    wrapper.style.gridRow = String(row + 1);
+    wrapper.style.cssText = isBlocked
+      ? 'border:2px dashed #999;border-radius:8px;padding:4px;background:#fafafa;opacity:0.6;'
+      : 'border:2px solid #2d5c0d;border-radius:8px;padding:4px;';
+    const rowDiv = document.createElement('div');
+    rowDiv.style.cssText = 'display:flex;gap:4px;';
+    [p * 2, p * 2 + 1].forEach(function (seatIdx) {
+      const seat = state.seats[seatIdx];
+      const occ = seat ? seat.occ : null;
+      const cell = occ !== null ? buildChip(occ) : emptySlot();
+      if (!isBlocked) {
+        cell.draggable = true;
+        cell.style.cursor = 'grab';
+        cell.ondragstart = function (e) { e.dataTransfer.setData('text/plain', String(seatIdx)); };
+        cell.ondragover = function (e) { e.preventDefault(); };
+        cell.ondrop = function (e) {
+          e.preventDefault();
+          const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+          if (fromIdx !== seatIdx) moveSeat(fromIdx, seatIdx);
+        };
+      }
+      rowDiv.appendChild(cell);
+    });
+    wrapper.appendChild(rowDiv);
+    grid.appendChild(wrapper);
+  }
+  fitGrid();
+}
+
+document.getElementById('manualMoveBtn').onclick = function () {
+  manualMove = !manualMove;
+  this.style.background = manualMove ? '#fef3c7' : '';
+  this.textContent = manualMove ? 'Manual move: drag to swap (click to stop)' : 'Manual move';
+  render();
+};
 document.getElementById('randomizeBtn').onclick = randomizeSeating;
 document.getElementById('compactBtn').onclick = compactSeating;
 document.getElementById('callBtn').onclick = randomCall;
