@@ -662,6 +662,8 @@ function render() {
       wrapper.className = 'desk-wrap';
       wrapper.style.gridColumn = String(col + 1);
       if (p === lonelyIdx && mergeWithIdx >= 0) {
+        const isColumnMerge = (mergeWithIdx === lonelyIdx - COLUMNS);
+        if (isColumnMerge) continue;
         wrapper.style.gridRow = String(row + 1);
         wrapper.style.cssText += ';border:2px dashed #999;border-radius:8px;padding:4px;opacity:0.6;';
         wrapper.appendChild(buildRowFromIds([]));
