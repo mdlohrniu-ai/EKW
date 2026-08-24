@@ -35,7 +35,7 @@
 <h2 style="font-size:18px;margin:0 0 10px;">Seating chart</h2>
 <div>
   <button id="randomizeBtn">Randomize seating</button>
-  <button id="compactBtn">Compact after absences</button>
+  <button id="compactBtn">Compact</button>
   <button id="callBtn">Call random student</button>
   <button id="refreshBtn">Refresh</button>
   <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
@@ -133,7 +133,7 @@ function buildChip(id) {
   el.style.cssText = 'width:78px;height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2px;overflow:hidden;flex-shrink:0;';
   el.style.background = isAbsent ? '#eee' : '#0c447c';
   el.style.color = isAbsent ? '#888' : '#e6f1fb';
-  el.style.border = isPicked ? '2px solid #a32d2d' : '2px solid transparent';
+  el.style.border = isPicked ? '4px solid #16a34a' : '2px solid transparent';
   const nameDiv = document.createElement('div');
   nameDiv.style.cssText = 'cursor:pointer;';
   nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>';
@@ -293,8 +293,7 @@ function render() {
   fitGrid();
   const presentCount = roster.filter(function (r) { return state.absent.indexOf(r.id) === -1; }).length;
   document.getElementById('stat').textContent = roster.length + ' on roster, ' + state.absent.length + ' absent, ' + presentCount + ' present, ' + state.blocked.length + ' desks blocked, last compact moved ' + lastMoved;
-  const seatedIds = state.seats.filter(function (s) { return s.occ !== null; }).map(function (s) { return s.occ; });
-  const unseatedAbsent = roster.filter(function (r) { return state.absent.indexOf(r.id) !== -1 && seatedIds.indexOf(r.id) === -1; });
+  const unseatedAbsent = roster.filter(function (r) { return state.absent.indexOf(r.id) !== -1; });
   const lateList = document.getElementById('lateList');
   lateList.innerHTML = '';
   if (unseatedAbsent.length) {
