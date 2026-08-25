@@ -61,10 +61,12 @@
 </div>
 
 <div class="card">
-  <h3>Edit rubrics</h3>
-  <div id="rubricEditor"></div>
-  <button id="saveRubricsBtn">Save rubrics</button>
-  <div id="rubricSaveStatus" style="font-size:13px;margin-top:6px;"></div>
+  <h3 id="rubricToggle" style="cursor:pointer;user-select:none;">&#9654; Edit rubrics</h3>
+  <div id="rubricEditorWrap" style="display:none;">
+    <div id="rubricEditor"></div>
+    <button id="saveRubricsBtn">Save rubrics</button>
+    <div id="rubricSaveStatus" style="font-size:13px;margin-top:6px;"></div>
+  </div>
 </div>
 
 <div class="card">
@@ -175,6 +177,13 @@ async function boot() {
   await loadCurrentAssignment();
   await loadHistory();
 }
+
+document.getElementById('rubricToggle').onclick = function () {
+  const wrap = document.getElementById('rubricEditorWrap');
+  const open = wrap.style.display !== 'none';
+  wrap.style.display = open ? 'none' : 'block';
+  this.innerHTML = (open ? '&#9654; ' : '&#9660; ') + 'Edit rubrics';
+};
 
 async function loadCurrentAssignment() {
   const cur = await callAction('getCurrentAssignment');
