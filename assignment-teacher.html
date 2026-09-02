@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <title>Assignment portal</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   body { font-family: system-ui, -apple-system, sans-serif; margin: 20px; color: #1a1a1a; }
   *, *::before, *::after { box-sizing: border-box; }
@@ -131,29 +133,27 @@
   </table>
   <button id="vocabAddWordBtn" type="button">+ Add word</button>
 
-  <h4 style="margin-top:16px;">Comprehension questions (about the topic)</h4>
-  <div id="vocabQuestionsList"></div>
-  <button id="vocabAddQuestionBtn" type="button">+ Add question</button>
-
   <h4 style="margin-top:16px;">Original-sentence questions</h4>
   <p style="font-size:12px;color:#666;">Pick one word per row for students to use in an original sentence. If a word is tagged with that level, it's pre-selected \u2014 change it if you'd rather use a different word.</p>
   <div id="vocabSentenceRows"></div>
 
-  <div style="margin-top:14px;"><button id="vocabPublishBtn">Publish this week's vocabulary set</button></div>
+  <div style="margin-top:14px;">
+    <button id="vocabPublishBtn">Publish this week's vocabulary set</button>
+    <button id="vocabClearFormBtn" type="button" style="background:#f7f7f7;">Clear form for next week</button>
+  </div>
   <div id="vocabPublishStatus" style="font-size:13px;margin-top:6px;"></div>
 </div>
 
 <div class="card">
-  <h3>Print documents</h3>
+  <h3>Download documents</h3>
   <select id="vocabWeekPicker" style="width:100%;margin-bottom:12px;"></select>
-  <button id="vocabPrintHandoutBtn" type="button">Print homework handout</button>
-  <button id="vocabPrintTestBtn" type="button">Print comprehension test</button>
-  <button id="vocabPrintAnswerKeyBtn" type="button">Print test answer key</button>
+  <button id="vocabDownloadPdfBtn" type="button">Download PDF (handout + test + answer key)</button>
 </div>
 
 <div class="card">
   <h3>Grade this week's vocab</h3>
   <div id="vocabGradesList"></div>
+  <button id="vocabSaveAllGradesBtn" type="button" style="margin-top:10px;">Save all grades</button>
   <button id="vocabExportGradesBtn" style="margin-top:10px;">Export vocab grades</button>
   <div id="vocabExportPanel" style="display:none;margin-top:10px;"></div>
 </div>
@@ -175,7 +175,6 @@ let roster = [];
 let vocabHistory = [];
 let vocabSelectedWeekId = null;
 let vocabGrades = [];
-let lastVocabTestOrder = {}; // weekId -> shuffled word list, so the answer key can match a previously printed test
 
 function showLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'flex'; }
 function hideLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'none'; }
@@ -656,24 +655,6 @@ function addVocabWordRow(word, definition, level, pos) {
 }
 document.getElementById('vocabAddWordBtn').onclick = function () { addVocabWordRow(); };
 
-function addVocabQuestionRow(text) {
-  const list = document.getElementById('vocabQuestionsList');
-  const row = document.createElement('div');
-  row.className = 'field-row';
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = 'Comprehension question about the topic';
-  input.value = text || '';
-  const rm = document.createElement('button');
-  rm.type = 'button';
-  rm.textContent = '\u00d7';
-  rm.onclick = function () { row.remove(); };
-  row.appendChild(input);
-  row.appendChild(rm);
-  list.appendChild(row);
-}
-document.getElementById('vocabAddQuestionBtn').onclick = function () { addVocabQuestionRow(); };
-
 function buildVocabSentenceRows() {
   const container = document.getElementById('vocabSentenceRows');
   container.innerHTML = '';
@@ -699,19 +680,17 @@ function resetVocabForm() {
   document.getElementById('vocabTopic').value = '';
   document.getElementById('vocabWordsBody').innerHTML = '';
   for (let i = 0; i < 10; i++) addVocabWordRow();
-  document.getElementById('vocabQuestionsList').innerHTML = '';
-  addVocabQuestionRow();
-  addVocabQuestionRow();
   buildVocabSentenceRows();
 }
+document.getElementById('vocabClearFormBtn').onclick = function () {
+  if (confirm("Clear the word list and sentence selections to start next week's set?")) resetVocabForm();
+};
 
 document.getElementById('vocabPublishBtn').onclick = async function () {
   const statusEl = document.getElementById('vocabPublishStatus');
   const label = document.getElementById('vocabLabel').value.trim();
   const topic = document.getElementById('vocabTopic').value.trim();
   const words = currentVocabWords().map(function (w, i) { return Object.assign({ id: 'w' + (i + 1) }, w); });
-  const questions = Array.prototype.slice.call(document.querySelectorAll('#vocabQuestionsList input'))
-    .map(function (i) { return i.value.trim(); }).filter(Boolean);
   const sentencePrompts = Array.prototype.slice.call(document.querySelectorAll('.vs-select'))
     .map(function (sel) { return { level: sel.dataset.level, word: sel.value }; })
     .filter(function (sp) { return sp.word; });
@@ -721,12 +700,11 @@ document.getElementById('vocabPublishBtn').onclick = async function () {
 
   const result = await callActionPost('createVocabAssignment', {
     label: label, topic: topic, words: JSON.stringify(words),
-    questions: JSON.stringify(questions), sentencePrompts: JSON.stringify(sentencePrompts)
+    questions: JSON.stringify([]), sentencePrompts: JSON.stringify(sentencePrompts)
   });
   if (result.error) { statusEl.textContent = result.error; statusEl.style.color = '#c0392b'; return; }
-  statusEl.textContent = 'Published!';
+  statusEl.textContent = 'Published! The form is left as-is in case you want to double check it \u2014 use "Clear form for next week" when you\'re ready to start the next one.';
   statusEl.style.color = '#1a7f37';
-  resetVocabForm();
   await loadVocabHistory();
 };
 
@@ -777,97 +755,126 @@ function renderVocabGrades() {
     row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee;font-size:13px;flex-wrap:wrap;';
     row.innerHTML =
       '<span style="flex:1;min-width:140px;">' + stu.name + ' (' + stu.id + ')</span>' +
-      '<span>' + homeworkLabel + ' <input type="number" class="vg-hw" style="width:60px;" value="' + (g.homeworkScore !== undefined && g.homeworkScore !== '' ? g.homeworkScore : '') + '"></span>' +
-      '<button type="button" class="vg-save-hw">Save</button>' +
-      '<span>Test: <input type="number" class="vg-test" style="width:60px;" value="' + (g.testScore !== undefined && g.testScore !== '' ? g.testScore : '') + '"></span>' +
-      '<button type="button" class="vg-save-test">Save</button>';
-    row.querySelector('.vg-save-hw').onclick = async function () {
-      const btn = this;
-      await callAction('saveVocabScore', { weekId: vocabSelectedWeekId, studentId: stu.id, studentName: stu.name, field: 'homework', value: Number(row.querySelector('.vg-hw').value) || 0 });
-      btn.textContent = 'Saved';
-      setTimeout(function () { btn.textContent = 'Save'; }, 1200);
-    };
-    row.querySelector('.vg-save-test').onclick = async function () {
-      const btn = this;
-      await callAction('saveVocabScore', { weekId: vocabSelectedWeekId, studentId: stu.id, studentName: stu.name, field: 'test', value: Number(row.querySelector('.vg-test').value) || 0 });
-      btn.textContent = 'Saved';
-      setTimeout(function () { btn.textContent = 'Save'; }, 1200);
-    };
+      '<span>' + homeworkLabel + ' <input type="number" class="vg-hw" data-student-id="' + escapeAttr(stu.id) + '" data-student-name="' + escapeAttr(stu.name) + '" style="width:60px;" value="' + (g.homeworkScore !== undefined && g.homeworkScore !== '' ? g.homeworkScore : '') + '"></span>' +
+      '<span>Test: <input type="number" class="vg-test" data-student-id="' + escapeAttr(stu.id) + '" data-student-name="' + escapeAttr(stu.name) + '" style="width:60px;" value="' + (g.testScore !== undefined && g.testScore !== '' ? g.testScore : '') + '"></span>';
     list.appendChild(row);
   });
 }
 
-function openPrintWindow(html) {
-  const win = window.open('', '_blank');
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.onload = function () { win.focus(); win.print(); };
-}
+document.getElementById('vocabSaveAllGradesBtn').onclick = async function () {
+  const btn = this;
+  const scores = {};
+  Array.prototype.slice.call(document.querySelectorAll('#vocabGradesList .vg-hw')).forEach(function (input) {
+    const id = input.dataset.studentId;
+    scores[id] = scores[id] || { studentName: input.dataset.studentName };
+    scores[id].homework = Number(input.value) || 0;
+  });
+  Array.prototype.slice.call(document.querySelectorAll('#vocabGradesList .vg-test')).forEach(function (input) {
+    const id = input.dataset.studentId;
+    scores[id] = scores[id] || { studentName: input.dataset.studentName };
+    scores[id].test = Number(input.value) || 0;
+  });
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  await callActionPost('saveVocabScoresBulk', { weekId: vocabSelectedWeekId, scores: JSON.stringify(scores) });
+  btn.textContent = 'Saved!';
+  setTimeout(function () { btn.disabled = false; btn.textContent = 'Save all grades'; }, 1500);
+};
 
-document.getElementById('vocabPrintHandoutBtn').onclick = function () {
-  const a = currentVocabAssignment();
-  if (!a) { alert('Publish or select a vocabulary set first.'); return; }
+// === PDF packet: handout + test + answer key, one page each ===
+
+function buildVocabHandoutInner(a) {
   const WORD_POINTS = 2, SENTENCE_POINTS = 5;
   const sentenceCount = (a.sentencePrompts || []).length;
   const totalPoints = a.words.length * WORD_POINTS + sentenceCount * SENTENCE_POINTS;
-  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + escapeHtml(a.label) + '</title><style>' +
-    'body{font-family:system-ui,-apple-system,sans-serif;max-width:700px;margin:24px auto;padding:0 24px;color:#111;}' +
-    'h1{font-size:20px;margin-bottom:4px;} h3{font-size:15px;margin-top:26px;border-bottom:1px solid #ccc;padding-bottom:4px;}' +
-    '.meta{font-size:13px;color:#444;margin-bottom:10px;}' +
-    '.word-item{margin-bottom:16px;} .word-item b{font-size:15px;}' +
-    '.blank-line{border-bottom:1px solid #333;height:20px;margin-top:6px;}' +
-    '.q-item{margin-bottom:14px;font-size:14px;}' +
-    '@media print{ .noprint{display:none;} }' +
-    '</style></head><body>' +
-    '<h1>' + escapeHtml(a.label) + '</h1>' +
-    '<div class="meta">' + (a.topic ? 'Topic: ' + escapeHtml(a.topic) + '<br>' : '') + 'Name: ________________________&nbsp;&nbsp;Student ID: ______________' +
-    '<br>Score: __________ / ' + totalPoints + '</div>' +
-    '<h3>Part 1 \u2014 Write the English definition of each word (' + WORD_POINTS + ' points each)</h3>';
+  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + '</h1>' +
+    '<div style="font-size:13px;color:#444;margin-bottom:10px;">' + (a.topic ? 'Topic: ' + escapeHtml(a.topic) + '<br>' : '') +
+    'Name: ________________________&nbsp;&nbsp;Student ID: ______________<br>Score: __________ / ' + totalPoints + '</div>' +
+    '<h3 style="font-size:14px;margin:14px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 1 \u2014 Write the English definition of each word (' + WORD_POINTS + ' points each)</h3>';
   a.words.forEach(function (w, i) {
     const posLabel = w.pos ? ' <span style="color:#666;font-style:italic;font-weight:normal;">(' + escapeHtml(w.pos) + ')</span>' : '';
-    html += '<div class="word-item"><b>' + (i + 1) + '. ' + escapeHtml(w.word) + '</b>' + posLabel + '<div class="blank-line"></div><div class="blank-line"></div></div>';
+    html += '<div style="margin-bottom:10px;"><b style="font-size:14px;">' + (i + 1) + '. ' + escapeHtml(w.word) + '</b>' + posLabel +
+      '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;"></div></div>';
   });
-  if (a.comprehensionQuestions && a.comprehensionQuestions.length) {
-    html += '<h3>Part 2 \u2014 Comprehension questions</h3>';
-    a.comprehensionQuestions.forEach(function (q, i) {
-      html += '<div class="q-item">' + (i + 1) + '. ' + escapeHtml(q) + '<div class="blank-line"></div><div class="blank-line"></div></div>';
-    });
-  }
   if (sentenceCount) {
-    html += '<h3>Part 3 \u2014 Use each word in an original sentence (' + SENTENCE_POINTS + ' points each)</h3>';
+    html += '<h3 style="font-size:14px;margin:14px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 2 \u2014 Use each word in an original sentence (' + SENTENCE_POINTS + ' points each)</h3>';
     a.sentencePrompts.forEach(function (sp, i) {
-      html += '<div class="q-item">' + (i + 1) + '. (' + escapeHtml(sp.level) + ') <b>' + escapeHtml(sp.word) + '</b><div class="blank-line"></div></div>';
+      html += '<div style="margin-bottom:10px;font-size:13px;">' + (i + 1) + '. (' + escapeHtml(sp.level) + ') <b>' + escapeHtml(sp.word) + '</b>' +
+        '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;"></div></div>';
     });
   }
-  html += '<button class="noprint" type="button" onclick="window.print()">Print</button></body></html>';
-  openPrintWindow(html);
-};
+  return html;
+}
 
-document.getElementById('vocabPrintTestBtn').onclick = function () {
+function buildVocabTestInner(a, shuffledDefs, shuffledWordBank) {
+  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + ' \u2014 Vocabulary Check</h1>' +
+    '<div style="font-size:13px;color:#444;margin-bottom:12px;">Name: ________________________&nbsp;&nbsp;Student ID: ______________</div>' +
+    '<div style="background:#f3f3f3;border-radius:6px;padding:8px 12px;font-size:13px;margin-bottom:14px;"><b>Word bank:</b> ' + shuffledWordBank.map(escapeHtml).join(', ') + '</div>' +
+    '<p style="font-size:13px;margin-bottom:10px;">Read each definition and write the correct word from the bank above.</p>';
+  shuffledDefs.forEach(function (w, i) {
+    html += '<div style="margin-bottom:12px;font-size:13px;">' + (i + 1) + '. ' + escapeHtml(w.definition) +
+      '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;width:200px;"></div></div>';
+  });
+  return html;
+}
+
+function buildVocabAnswerKeyInner(a, shuffledDefs) {
+  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + ' \u2014 Vocabulary Check: Answer Key</h1>' +
+    '<p style="font-size:12px;color:#444;margin-bottom:14px;">Matches the question numbers on the comprehension test.</p>';
+  shuffledDefs.forEach(function (w, i) {
+    const posLabel = w.pos ? ' <i>(' + escapeHtml(w.pos) + ')</i>' : '';
+    html += '<div style="margin-bottom:10px;font-size:13px;">' + (i + 1) + '. <b>' + escapeHtml(w.word) + '</b>' + posLabel + ' \u2014 ' + escapeHtml(w.definition) + '</div>';
+  });
+  return html;
+}
+
+async function renderPacketPageToCanvas(innerHtml) {
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;left:-9999px;top:0;width:720px;background:#fff;padding:36px;font-family:system-ui,-apple-system,sans-serif;color:#111;';
+  container.innerHTML = innerHtml;
+  document.body.appendChild(container);
+  const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' });
+  document.body.removeChild(container);
+  return canvas;
+}
+
+document.getElementById('vocabDownloadPdfBtn').onclick = async function () {
   const a = currentVocabAssignment();
   if (!a) { alert('Publish or select a vocabulary set first.'); return; }
-  const shuffledDefs = shuffleArray(a.words);
-  lastVocabTestOrder[a.weekId] = shuffledDefs;
-  const shuffledWordBank = shuffleArray(a.words.map(function (w) { return w.word; }));
-  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + escapeHtml(a.label) + ' - Test</title><style>' +
-    'body{font-family:system-ui,-apple-system,sans-serif;max-width:700px;margin:24px auto;padding:0 24px;color:#111;}' +
-    'h1{font-size:20px;margin-bottom:4px;}' +
-    '.meta{font-size:13px;color:#444;margin-bottom:16px;}' +
-    '.bank{background:#f3f3f3;border-radius:6px;padding:10px 14px;font-size:14px;margin-bottom:20px;}' +
-    '.q-item{margin-bottom:16px;font-size:14px;}' +
-    '.blank-line{border-bottom:1px solid #333;height:20px;margin-top:6px;width:220px;}' +
-    '@media print{ .noprint{display:none;} }' +
-    '</style></head><body>' +
-    '<h1>' + escapeHtml(a.label) + ' \u2014 Vocabulary Check</h1>' +
-    '<div class="meta">Name: ________________________&nbsp;&nbsp;Student ID: ______________</div>' +
-    '<div class="bank"><b>Word bank:</b> ' + shuffledWordBank.map(escapeHtml).join(', ') + '</div>' +
-    '<p style="font-size:14px;">Read each definition and write the correct word from the bank above.</p>';
-  shuffledDefs.forEach(function (w, i) {
-    html += '<div class="q-item">' + (i + 1) + '. ' + escapeHtml(w.definition) + '<div class="blank-line"></div></div>';
-  });
-  html += '<button class="noprint" type="button" onclick="window.print()">Print</button></body></html>';
-  openPrintWindow(html);
+  showLoading();
+  try {
+    const shuffledDefs = shuffleArray(a.words);
+    const shuffledWordBank = shuffleArray(a.words.map(function (w) { return w.word; }));
+    const pages = [
+      buildVocabHandoutInner(a),
+      buildVocabTestInner(a, shuffledDefs, shuffledWordBank),
+      buildVocabAnswerKeyInner(a, shuffledDefs)
+    ];
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+    const availW = pageW - margin * 2;
+    const availH = pageH - margin * 2;
+
+    for (let i = 0; i < pages.length; i++) {
+      const canvas = await renderPacketPageToCanvas(pages[i]);
+      const scale = Math.min(availW / canvas.width, availH / canvas.height);
+      const drawW = canvas.width * scale;
+      const drawH = canvas.height * scale;
+      const x = (pageW - drawW) / 2;
+      const y = margin;
+      if (i > 0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, drawW, drawH);
+    }
+    pdf.save((a.label || 'vocabulary') + ' - packet.pdf');
+  } catch (err) {
+    alert('Could not generate the PDF: ' + err.message);
+  } finally {
+    hideLoading();
+  }
 };
 
 document.getElementById('vocabExportGradesBtn').onclick = async function () {
