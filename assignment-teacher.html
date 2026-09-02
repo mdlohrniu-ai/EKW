@@ -770,11 +770,11 @@ function populateVocabForm(a) {
   });
 }
 
-document.getElementById('vocabClearFormBtn').onclick = async function () {
-  if (!confirm("Clear the word list and sentence selections to start next week's set?")) return;
+document.getElementById('vocabClearFormBtn').onclick = function () {
+  if (!confirm("Clear the word list, sentence selections, and this week's grade entry boxes to start next week's set? (Already-saved grades aren't deleted unless you click \"Save all grades\" afterward.)")) return;
   localStorage.setItem('vocabFormCleared', 'true');
   resetVocabForm();
-  if (vocabSelectedWeekId) await loadVocabGrades();
+  document.querySelectorAll('#vocabGradesList .vg-hw, #vocabGradesList .vg-test').forEach(function (input) { input.value = ''; });
 };
 
 document.getElementById('vocabPublishBtn').onclick = async function () {
