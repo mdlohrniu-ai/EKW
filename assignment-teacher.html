@@ -717,7 +717,10 @@ function populateVocabForm(a) {
 }
 
 document.getElementById('vocabClearFormBtn').onclick = function () {
-  if (confirm("Clear the word list and sentence selections to start next week's set?")) resetVocabForm();
+  if (confirm("Clear the word list and sentence selections to start next week's set?")) {
+    localStorage.setItem('vocabFormCleared', 'true');
+    resetVocabForm();
+  }
 };
 
 document.getElementById('vocabPublishBtn').onclick = async function () {
@@ -737,6 +740,7 @@ document.getElementById('vocabPublishBtn').onclick = async function () {
     questions: JSON.stringify([]), sentencePrompts: JSON.stringify(sentencePrompts)
   });
   if (result.error) { statusEl.textContent = result.error; statusEl.style.color = '#c0392b'; return; }
+  localStorage.removeItem('vocabFormCleared');
   statusEl.textContent = 'Published! This stays here \u2014 even if you log back in later \u2014 until you use "Clear form for next week".';
   statusEl.style.color = '#1a7f37';
   await loadVocabHistory();
@@ -948,7 +952,9 @@ document.getElementById('vocabExportGradesBtn').onclick = async function () {
 
 async function bootVocab() {
   await loadVocabHistory();
-  if (vocabHistory.length) {
+  if (localStorage.getItem('vocabFormCleared') === 'true') {
+    resetVocabForm();
+  } else if (vocabHistory.length) {
     populateVocabForm(vocabHistory[0]);
   } else {
     resetVocabForm();
