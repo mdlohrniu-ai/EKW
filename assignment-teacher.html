@@ -106,11 +106,16 @@
 
 <div class="card">
   <h3>AI word-list prompt</h3>
-  <p style="font-size:13px;color:#666;">Type this week's topic, generate the prompt, and paste it into Claude (or any AI chat) in a new conversation. Then copy the resulting word list into the table below.</p>
+  <p style="font-size:13px;color:#666;">Type this week's topic and generate the prompt. Paste it into Claude (or any AI chat) in a new conversation \u2014 it replies with a plain list. Copy that list straight back into the box below and click Fill table.</p>
   <input type="text" id="vocabAiTopic" placeholder="This week's topic (e.g. Talking about interests)" style="width:100%;margin-bottom:8px;">
   <button id="vocabGenPromptBtn" type="button">Generate prompt</button>
   <textarea id="vocabAiPromptBox" readonly style="width:100%;min-height:140px;display:none;margin-top:8px;font-size:13px;"></textarea>
   <button id="vocabCopyPromptBtn" type="button" style="display:none;margin-top:6px;">Copy prompt</button>
+
+  <h4 style="margin-top:16px;">Paste the AI's word list here</h4>
+  <textarea id="vocabAiPasteBox" placeholder="Paste the pipe-separated list the AI gave you back, e.g.&#10;itinerary | noun | B2 | a planned route or schedule for a trip" style="width:100%;min-height:120px;font-size:13px;"></textarea>
+  <button id="vocabFillFromPasteBtn" type="button">Fill table from paste</button>
+  <div id="vocabPasteStatus" style="font-size:13px;margin-top:6px;"></div>
 </div>
 
 <div class="card">
@@ -120,7 +125,7 @@
 
   <table id="vocabWordsTable" style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;">
     <thead><tr>
-      <th style="text-align:left;">Word</th><th style="text-align:left;">Definition (English)</th><th>Level</th><th></th>
+      <th style="text-align:left;">Word</th><th style="text-align:left;">Part of speech</th><th style="text-align:left;">Definition (English)</th><th>Level</th><th></th>
     </tr></thead>
     <tbody id="vocabWordsBody"></tbody>
   </table>
@@ -143,6 +148,7 @@
   <select id="vocabWeekPicker" style="width:100%;margin-bottom:12px;"></select>
   <button id="vocabPrintHandoutBtn" type="button">Print homework handout</button>
   <button id="vocabPrintTestBtn" type="button">Print comprehension test</button>
+  <button id="vocabPrintAnswerKeyBtn" type="button">Print test answer key</button>
 </div>
 
 <div class="card">
@@ -169,6 +175,7 @@ let roster = [];
 let vocabHistory = [];
 let vocabSelectedWeekId = null;
 let vocabGrades = [];
+let lastVocabTestOrder = {}; // weekId -> shuffled word list, so the answer key can match a previously printed test
 
 function showLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'flex'; }
 function hideLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'none'; }
@@ -537,14 +544,46 @@ function shuffleArray(arr) {
 
 function buildVocabAiPrompt(topic) {
   return 'I\'m teaching an intermediate English conversation class (EFL). This week\'s topic is: "' + topic + '".\n\n' +
-    'Give me exactly 10 vocabulary items relevant to this topic, mixing nouns, adjectives, adverbs, verbs, and idiomatic phrases where natural. Tag each with a CEFR level:\n' +
-    '- 3 words at A2\n' +
-    '- 5 words at B1\n' +
-    '- 2 words at B2\n\n' +
-    'For each word, give a short, student-friendly English definition (one sentence, no jargon, written for an intermediate learner).\n\n' +
-    'Then give me 3 short original-sentence writing prompts for students: one using an A2 word, one using a B1 word, and one using a B2 word from your list.\n\n' +
-    'Format your answer as a simple numbered list: word \u2014 definition \u2014 level, followed by the 3 sentence prompts.';
+    'Give me exactly 10 vocabulary items relevant to this topic \u2014 a mix of nouns, verbs, adjectives, adverbs, and idiomatic phrases where natural \u2014 split into 3 at CEFR level A2, 5 at B1, and 2 at B2. For each word, write a short, student-friendly English definition (one sentence, no jargon, written for an intermediate learner).\n\n' +
+    'Reply with ONLY the list below, one line per word, no numbering, no headers, no commentary before or after \u2014 just this exact pipe-separated format so I can paste it straight into my tool:\n\n' +
+    'word | part of speech | CEFR level | definition\n\n' +
+    'Example line:\n' +
+    'itinerary | noun | B2 | a planned route or schedule for a trip';
 }
+
+function parseVocabWordList(text) {
+  const lines = text.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+  const words = [];
+  lines.forEach(function (line) {
+    const parts = line.split('|').map(function (p) { return p.trim(); });
+    if (parts.length >= 4 && parts[0]) {
+      const level = parts[2].toUpperCase();
+      words.push({
+        word: parts[0],
+        pos: parts[1],
+        level: /^(A2|B1|B2)$/.test(level) ? level : '',
+        definition: parts.slice(3).join('|').trim()
+      });
+    }
+  });
+  return words;
+}
+
+document.getElementById('vocabFillFromPasteBtn').onclick = function () {
+  const text = document.getElementById('vocabAiPasteBox').value;
+  const statusEl = document.getElementById('vocabPasteStatus');
+  const parsed = parseVocabWordList(text);
+  if (!parsed.length) {
+    statusEl.textContent = "Couldn't find any words in that format \u2014 make sure you pasted the pipe-separated list, one word per line.";
+    statusEl.style.color = '#c0392b';
+    return;
+  }
+  document.getElementById('vocabWordsBody').innerHTML = '';
+  parsed.forEach(function (w) { addVocabWordRow(w.word, w.definition, w.level, w.pos); });
+  refreshVocabSentenceOptions();
+  statusEl.textContent = 'Filled ' + parsed.length + ' word(s) into the table below \u2014 double-check them, then fill in your comprehension questions.';
+  statusEl.style.color = '#1a7f37';
+};
 
 document.getElementById('vocabGenPromptBtn').onclick = function () {
   const topic = document.getElementById('vocabAiTopic').value.trim() || '[the topic]';
@@ -568,6 +607,7 @@ function currentVocabWords() {
   return Array.prototype.slice.call(document.querySelectorAll('#vocabWordsBody tr')).map(function (tr) {
     return {
       word: tr.querySelector('.vw-word').value.trim(),
+      pos: tr.querySelector('.vw-pos').value.trim(),
       definition: tr.querySelector('.vw-def').value.trim(),
       level: tr.querySelector('.vw-level').value
     };
@@ -599,11 +639,12 @@ function refreshVocabSentenceOptions() {
   });
 }
 
-function addVocabWordRow(word, definition, level) {
+function addVocabWordRow(word, definition, level, pos) {
   const tbody = document.getElementById('vocabWordsBody');
   const tr = document.createElement('tr');
   tr.innerHTML =
     '<td><input type="text" class="vw-word" style="width:100%;" value="' + escapeAttr(word || '') + '"></td>' +
+    '<td><input type="text" class="vw-pos" style="width:100%;" placeholder="e.g. noun" value="' + escapeAttr(pos || '') + '"></td>' +
     '<td><input type="text" class="vw-def" style="width:100%;" value="' + escapeAttr(definition || '') + '"></td>' +
     '<td><select class="vw-level"><option value="">-</option><option value="A2">A2</option><option value="B1">B1</option><option value="B2">B2</option></select></td>' +
     '<td><button type="button" class="vw-remove">\u00d7</button></td>';
@@ -636,7 +677,7 @@ document.getElementById('vocabAddQuestionBtn').onclick = function () { addVocabQ
 function buildVocabSentenceRows() {
   const container = document.getElementById('vocabSentenceRows');
   container.innerHTML = '';
-  ['A2', 'B1', 'B2'].forEach(function (level) {
+  ['B1', 'B2'].forEach(function (level) {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;';
     const label = document.createElement('span');
@@ -725,6 +766,9 @@ function renderVocabGrades() {
   const list = document.getElementById('vocabGradesList');
   list.innerHTML = '';
   if (!roster.length) { list.textContent = 'No students on the roster.'; return; }
+  const a = currentVocabAssignment();
+  const homeworkMax = a ? (a.words.length * 2 + (a.sentencePrompts || []).length * 5) : null;
+  const homeworkLabel = 'Homework' + (homeworkMax != null ? ' (/' + homeworkMax + ')' : '') + ':';
   const gradesById = {};
   vocabGrades.forEach(function (g) { gradesById[g.studentId] = g; });
   roster.forEach(function (stu) {
@@ -733,7 +777,7 @@ function renderVocabGrades() {
     row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee;font-size:13px;flex-wrap:wrap;';
     row.innerHTML =
       '<span style="flex:1;min-width:140px;">' + stu.name + ' (' + stu.id + ')</span>' +
-      '<span>Homework: <input type="number" class="vg-hw" style="width:60px;" value="' + (g.homeworkScore !== undefined && g.homeworkScore !== '' ? g.homeworkScore : '') + '"></span>' +
+      '<span>' + homeworkLabel + ' <input type="number" class="vg-hw" style="width:60px;" value="' + (g.homeworkScore !== undefined && g.homeworkScore !== '' ? g.homeworkScore : '') + '"></span>' +
       '<button type="button" class="vg-save-hw">Save</button>' +
       '<span>Test: <input type="number" class="vg-test" style="width:60px;" value="' + (g.testScore !== undefined && g.testScore !== '' ? g.testScore : '') + '"></span>' +
       '<button type="button" class="vg-save-test">Save</button>';
@@ -764,6 +808,9 @@ function openPrintWindow(html) {
 document.getElementById('vocabPrintHandoutBtn').onclick = function () {
   const a = currentVocabAssignment();
   if (!a) { alert('Publish or select a vocabulary set first.'); return; }
+  const WORD_POINTS = 2, SENTENCE_POINTS = 5;
+  const sentenceCount = (a.sentencePrompts || []).length;
+  const totalPoints = a.words.length * WORD_POINTS + sentenceCount * SENTENCE_POINTS;
   let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + escapeHtml(a.label) + '</title><style>' +
     'body{font-family:system-ui,-apple-system,sans-serif;max-width:700px;margin:24px auto;padding:0 24px;color:#111;}' +
     'h1{font-size:20px;margin-bottom:4px;} h3{font-size:15px;margin-top:26px;border-bottom:1px solid #ccc;padding-bottom:4px;}' +
@@ -774,10 +821,12 @@ document.getElementById('vocabPrintHandoutBtn').onclick = function () {
     '@media print{ .noprint{display:none;} }' +
     '</style></head><body>' +
     '<h1>' + escapeHtml(a.label) + '</h1>' +
-    '<div class="meta">' + (a.topic ? 'Topic: ' + escapeHtml(a.topic) + '<br>' : '') + 'Name: ________________________&nbsp;&nbsp;Student ID: ______________</div>' +
-    '<h3>Part 1 \u2014 Write the English definition of each word</h3>';
+    '<div class="meta">' + (a.topic ? 'Topic: ' + escapeHtml(a.topic) + '<br>' : '') + 'Name: ________________________&nbsp;&nbsp;Student ID: ______________' +
+    '<br>Score: __________ / ' + totalPoints + '</div>' +
+    '<h3>Part 1 \u2014 Write the English definition of each word (' + WORD_POINTS + ' points each)</h3>';
   a.words.forEach(function (w, i) {
-    html += '<div class="word-item"><b>' + (i + 1) + '. ' + escapeHtml(w.word) + '</b><div class="blank-line"></div><div class="blank-line"></div></div>';
+    const posLabel = w.pos ? ' <span style="color:#666;font-style:italic;font-weight:normal;">(' + escapeHtml(w.pos) + ')</span>' : '';
+    html += '<div class="word-item"><b>' + (i + 1) + '. ' + escapeHtml(w.word) + '</b>' + posLabel + '<div class="blank-line"></div><div class="blank-line"></div></div>';
   });
   if (a.comprehensionQuestions && a.comprehensionQuestions.length) {
     html += '<h3>Part 2 \u2014 Comprehension questions</h3>';
@@ -785,8 +834,8 @@ document.getElementById('vocabPrintHandoutBtn').onclick = function () {
       html += '<div class="q-item">' + (i + 1) + '. ' + escapeHtml(q) + '<div class="blank-line"></div><div class="blank-line"></div></div>';
     });
   }
-  if (a.sentencePrompts && a.sentencePrompts.length) {
-    html += '<h3>Part 3 \u2014 Use each word in an original sentence</h3>';
+  if (sentenceCount) {
+    html += '<h3>Part 3 \u2014 Use each word in an original sentence (' + SENTENCE_POINTS + ' points each)</h3>';
     a.sentencePrompts.forEach(function (sp, i) {
       html += '<div class="q-item">' + (i + 1) + '. (' + escapeHtml(sp.level) + ') <b>' + escapeHtml(sp.word) + '</b><div class="blank-line"></div></div>';
     });
@@ -799,6 +848,7 @@ document.getElementById('vocabPrintTestBtn').onclick = function () {
   const a = currentVocabAssignment();
   if (!a) { alert('Publish or select a vocabulary set first.'); return; }
   const shuffledDefs = shuffleArray(a.words);
+  lastVocabTestOrder[a.weekId] = shuffledDefs;
   const shuffledWordBank = shuffleArray(a.words.map(function (w) { return w.word; }));
   let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + escapeHtml(a.label) + ' - Test</title><style>' +
     'body{font-family:system-ui,-apple-system,sans-serif;max-width:700px;margin:24px auto;padding:0 24px;color:#111;}' +
