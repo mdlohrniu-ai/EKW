@@ -745,8 +745,10 @@ function renderVocabGrades() {
   list.innerHTML = '';
   if (!roster.length) { list.textContent = 'No students on the roster.'; return; }
   const a = currentVocabAssignment();
-  const homeworkMax = a ? (a.words.length * 2 + (a.sentencePrompts || []).length * 5) : null;
+  const homeworkMax = a ? (a.words.length * 2) : null;
+  const testMax = a ? (a.words.length * 2 + (a.sentencePrompts || []).length * 5) : null;
   const homeworkLabel = 'Homework' + (homeworkMax != null ? ' (/' + homeworkMax + ')' : '') + ':';
+  const testLabel = 'Test' + (testMax != null ? ' (/' + testMax + ')' : '') + ':';
   const gradesById = {};
   vocabGrades.forEach(function (g) { gradesById[g.studentId] = g; });
   roster.forEach(function (stu) {
@@ -756,7 +758,7 @@ function renderVocabGrades() {
     row.innerHTML =
       '<span style="flex:1;min-width:140px;">' + stu.name + ' (' + stu.id + ')</span>' +
       '<span>' + homeworkLabel + ' <input type="number" class="vg-hw" data-student-id="' + escapeAttr(stu.id) + '" data-student-name="' + escapeAttr(stu.name) + '" style="width:60px;" value="' + (g.homeworkScore !== undefined && g.homeworkScore !== '' ? g.homeworkScore : '') + '"></span>' +
-      '<span>Test: <input type="number" class="vg-test" data-student-id="' + escapeAttr(stu.id) + '" data-student-name="' + escapeAttr(stu.name) + '" style="width:60px;" value="' + (g.testScore !== undefined && g.testScore !== '' ? g.testScore : '') + '"></span>';
+      '<span>' + testLabel + ' <input type="number" class="vg-test" data-student-id="' + escapeAttr(stu.id) + '" data-student-name="' + escapeAttr(stu.name) + '" style="width:60px;" value="' + (g.testScore !== undefined && g.testScore !== '' ? g.testScore : '') + '"></span>';
     list.appendChild(row);
   });
 }
@@ -784,17 +786,34 @@ document.getElementById('vocabSaveAllGradesBtn').onclick = async function () {
 // === PDF packet: handout + test + answer key, one page each ===
 
 function buildVocabHandoutInner(a) {
+  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + '</h1>' +
+    '<div style="font-size:13px;color:#444;margin-bottom:10px;">' + (a.topic ? 'Topic: ' + escapeHtml(a.topic) + '<br>' : '') +
+    'Name: ________________________&nbsp;&nbsp;Student ID: ______________</div>' +
+    '<p style="font-size:13px;color:#444;margin-bottom:14px;">For each word, write its part of speech and an English definition.</p>';
+  a.words.forEach(function (w, i) {
+    html += '<div style="margin-bottom:14px;">' +
+      '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">' +
+      '<b style="font-size:14px;">' + (i + 1) + '. ' + escapeHtml(w.word) + '</b>' +
+      '<span style="font-size:12px;color:#444;">Part of speech: <span style="display:inline-block;border-bottom:1px solid #333;width:130px;">&nbsp;</span></span>' +
+      '</div>' +
+      '<div style="border-bottom:1px solid #333;height:16px;margin-top:6px;"></div>' +
+      '</div>';
+  });
+  return html;
+}
+
+function buildVocabTestInner(a, shuffledDefs, shuffledWordBank) {
   const WORD_POINTS = 2, SENTENCE_POINTS = 5;
   const sentenceCount = (a.sentencePrompts || []).length;
   const totalPoints = a.words.length * WORD_POINTS + sentenceCount * SENTENCE_POINTS;
-  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + '</h1>' +
-    '<div style="font-size:13px;color:#444;margin-bottom:10px;">' + (a.topic ? 'Topic: ' + escapeHtml(a.topic) + '<br>' : '') +
-    'Name: ________________________&nbsp;&nbsp;Student ID: ______________<br>Score: __________ / ' + totalPoints + '</div>' +
-    '<h3 style="font-size:14px;margin:14px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 1 \u2014 Write the English definition of each word (' + WORD_POINTS + ' points each)</h3>';
-  a.words.forEach(function (w, i) {
-    const posLabel = w.pos ? ' <span style="color:#666;font-style:italic;font-weight:normal;">(' + escapeHtml(w.pos) + ')</span>' : '';
-    html += '<div style="margin-bottom:10px;"><b style="font-size:14px;">' + (i + 1) + '. ' + escapeHtml(w.word) + '</b>' + posLabel +
-      '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;"></div></div>';
+  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + ' \u2014 Vocabulary Check</h1>' +
+    '<div style="font-size:13px;color:#444;margin-bottom:12px;">Name: ________________________&nbsp;&nbsp;Student ID: ______________<br>Score: __________ / ' + totalPoints + '</div>' +
+    '<h3 style="font-size:14px;margin:10px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 1 \u2014 Match each definition to the correct word (' + WORD_POINTS + ' points each)</h3>' +
+    '<div style="background:#f3f3f3;border-radius:6px;padding:8px 12px;font-size:13px;margin-bottom:14px;"><b>Word bank:</b> ' + shuffledWordBank.map(escapeHtml).join(', ') + '</div>' +
+    '<p style="font-size:13px;margin-bottom:10px;">Read each definition and write the correct word from the bank above.</p>';
+  shuffledDefs.forEach(function (w, i) {
+    html += '<div style="margin-bottom:10px;font-size:13px;">' + (i + 1) + '. ' + escapeHtml(w.definition) +
+      '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;width:200px;"></div></div>';
   });
   if (sentenceCount) {
     html += '<h3 style="font-size:14px;margin:14px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 2 \u2014 Use each word in an original sentence (' + SENTENCE_POINTS + ' points each)</h3>';
@@ -806,25 +825,20 @@ function buildVocabHandoutInner(a) {
   return html;
 }
 
-function buildVocabTestInner(a, shuffledDefs, shuffledWordBank) {
-  let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + ' \u2014 Vocabulary Check</h1>' +
-    '<div style="font-size:13px;color:#444;margin-bottom:12px;">Name: ________________________&nbsp;&nbsp;Student ID: ______________</div>' +
-    '<div style="background:#f3f3f3;border-radius:6px;padding:8px 12px;font-size:13px;margin-bottom:14px;"><b>Word bank:</b> ' + shuffledWordBank.map(escapeHtml).join(', ') + '</div>' +
-    '<p style="font-size:13px;margin-bottom:10px;">Read each definition and write the correct word from the bank above.</p>';
-  shuffledDefs.forEach(function (w, i) {
-    html += '<div style="margin-bottom:12px;font-size:13px;">' + (i + 1) + '. ' + escapeHtml(w.definition) +
-      '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;width:200px;"></div></div>';
-  });
-  return html;
-}
-
 function buildVocabAnswerKeyInner(a, shuffledDefs) {
   let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + ' \u2014 Vocabulary Check: Answer Key</h1>' +
-    '<p style="font-size:12px;color:#444;margin-bottom:14px;">Matches the question numbers on the comprehension test.</p>';
+    '<p style="font-size:12px;color:#444;margin-bottom:14px;">Matches the question numbers on the test.</p>' +
+    '<h3 style="font-size:14px;margin:10px 0 8px;">Part 1 \u2014 Vocabulary</h3>';
   shuffledDefs.forEach(function (w, i) {
     const posLabel = w.pos ? ' <i>(' + escapeHtml(w.pos) + ')</i>' : '';
-    html += '<div style="margin-bottom:10px;font-size:13px;">' + (i + 1) + '. <b>' + escapeHtml(w.word) + '</b>' + posLabel + ' \u2014 ' + escapeHtml(w.definition) + '</div>';
+    html += '<div style="margin-bottom:8px;font-size:13px;">' + (i + 1) + '. <b>' + escapeHtml(w.word) + '</b>' + posLabel + ' \u2014 ' + escapeHtml(w.definition) + '</div>';
   });
+  if (a.sentencePrompts && a.sentencePrompts.length) {
+    html += '<h3 style="font-size:14px;margin:14px 0 8px;">Part 2 \u2014 Original sentences</h3>';
+    a.sentencePrompts.forEach(function (sp, i) {
+      html += '<div style="margin-bottom:8px;font-size:13px;">' + (i + 1) + '. (' + escapeHtml(sp.level) + ') ' + escapeHtml(sp.word) + ' \u2014 Varies per student (check for correct, grammatical use of the word).</div>';
+    });
+  }
   return html;
 }
 
