@@ -176,8 +176,19 @@ let vocabHistory = [];
 let vocabSelectedWeekId = null;
 let vocabGrades = [];
 
-function showLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'flex'; }
-function hideLoading() { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'none'; }
+let loadingCount = 0;
+function showLoading() {
+  loadingCount++;
+  const el = document.getElementById('loadingOverlay');
+  if (el) el.style.display = 'flex';
+}
+function hideLoading() {
+  loadingCount = Math.max(0, loadingCount - 1);
+  if (loadingCount === 0) {
+    const el = document.getElementById('loadingOverlay');
+    if (el) el.style.display = 'none';
+  }
+}
 
 async function callAction(action, params) {
   showLoading();
@@ -286,14 +297,64 @@ document.getElementById('pwSubmit').onclick = async function () {
   }
 })();
 
+function populateWeekPickerOptions(selectEl, list) {
+  selectEl.innerHTML = '';
+  list.forEach(function (a) {
+    const opt = document.createElement('option');
+    opt.value = a.weekId;
+    opt.textContent = a.label;
+    selectEl.appendChild(opt);
+  });
+}
+
 async function boot() {
   addFieldRow();
-  rubrics = await callAction('getRubrics');
+
+  // Fire off every independent read in parallel instead of one-at-a-time (each round trip to
+  // Apps Script has real latency, and these 5 don't depend on each other's results).
+  const results = await Promise.all([
+    callAction('getRubrics'),
+    loadCurrentAssignment(),
+    loadRoster(),
+    callAction('getAssignmentHistory'),
+    callAction('getVocabAssignmentHistory')
+  ]);
+  rubrics = results[0];
+  const historyRes = results[3];
+  const vocabHistoryRes = results[4];
+
   renderRubricEditor();
-  await loadCurrentAssignment();
-  await loadHistory();
-  await loadRoster();
-  await bootVocab();
+
+  history = historyRes;
+  populateWeekPickerOptions(document.getElementById('weekPicker'), history);
+
+  vocabHistory = vocabHistoryRes;
+  const vocabPicker = document.getElementById('vocabWeekPicker');
+  populateWeekPickerOptions(vocabPicker, vocabHistory);
+
+  if (localStorage.getItem('vocabFormCleared') === 'true') {
+    resetVocabForm();
+  } else if (vocabHistory.length) {
+    populateVocabForm(vocabHistory[0]);
+  } else {
+    resetVocabForm();
+  }
+
+  // These two depend on the results above (selectedWeekId / rubrics, vocabSelectedWeekId / roster)
+  // but not on each other, so they can still run in parallel as a second wave.
+  const wave2 = [];
+  if (history.length) {
+    selectedWeekId = history[0].weekId;
+    wave2.push(loadSubmissions());
+  }
+  if (vocabHistory.length) {
+    vocabSelectedWeekId = vocabHistory[0].weekId;
+    vocabPicker.value = vocabSelectedWeekId;
+    wave2.push(loadVocabGrades());
+  } else {
+    document.getElementById('vocabGradesList').textContent = 'No vocabulary sets published yet.';
+  }
+  await Promise.all(wave2);
 }
 
 document.getElementById('rubricToggle').onclick = function () {
@@ -411,14 +472,7 @@ document.getElementById('saveRubricsBtn').onclick = async function () {
 
 async function loadHistory() {
   history = await callAction('getAssignmentHistory');
-  const picker = document.getElementById('weekPicker');
-  picker.innerHTML = '';
-  history.forEach(function (a) {
-    const opt = document.createElement('option');
-    opt.value = a.weekId;
-    opt.textContent = a.label;
-    picker.appendChild(opt);
-  });
+  populateWeekPickerOptions(document.getElementById('weekPicker'), history);
   if (history.length) { selectedWeekId = history[0].weekId; await loadSubmissions(); }
 }
 document.getElementById('weekPicker').onchange = async function () { selectedWeekId = this.value; await loadSubmissions(); };
@@ -716,11 +770,11 @@ function populateVocabForm(a) {
   });
 }
 
-document.getElementById('vocabClearFormBtn').onclick = function () {
-  if (confirm("Clear the word list and sentence selections to start next week's set?")) {
-    localStorage.setItem('vocabFormCleared', 'true');
-    resetVocabForm();
-  }
+document.getElementById('vocabClearFormBtn').onclick = async function () {
+  if (!confirm("Clear the word list and sentence selections to start next week's set?")) return;
+  localStorage.setItem('vocabFormCleared', 'true');
+  resetVocabForm();
+  if (vocabSelectedWeekId) await loadVocabGrades();
 };
 
 document.getElementById('vocabPublishBtn').onclick = async function () {
@@ -749,13 +803,7 @@ document.getElementById('vocabPublishBtn').onclick = async function () {
 async function loadVocabHistory() {
   vocabHistory = await callAction('getVocabAssignmentHistory');
   const picker = document.getElementById('vocabWeekPicker');
-  picker.innerHTML = '';
-  vocabHistory.forEach(function (a) {
-    const opt = document.createElement('option');
-    opt.value = a.weekId;
-    opt.textContent = a.label;
-    picker.appendChild(opt);
-  });
+  populateWeekPickerOptions(picker, vocabHistory);
   if (vocabHistory.length) {
     vocabSelectedWeekId = vocabHistory[0].weekId;
     picker.value = vocabSelectedWeekId;
@@ -950,16 +998,6 @@ document.getElementById('vocabExportGradesBtn').onclick = async function () {
   }
 };
 
-async function bootVocab() {
-  await loadVocabHistory();
-  if (localStorage.getItem('vocabFormCleared') === 'true') {
-    resetVocabForm();
-  } else if (vocabHistory.length) {
-    populateVocabForm(vocabHistory[0]);
-  } else {
-    resetVocabForm();
-  }
-}
 </script>
 </body>
 </html>
