@@ -205,6 +205,7 @@ async function loadRoster() { roster = await callAction('getRoster'); }
 
 async function tryLogin(pw) {
   const res = await fetch(WEBAPP_URL + '?action=getAssignmentHistory&password=' + encodeURIComponent(pw));
+  if (!res.ok) throw new Error('Server responded with ' + res.status);
   const data = await res.json();
   return !data.error;
 }
@@ -247,24 +248,41 @@ if (isPresentMode) {
 
 document.getElementById('pwSubmit').onclick = async function () {
   const pw = document.getElementById('pwInput').value;
-  const ok = await tryLogin(pw);
-  if (ok) {
-    savedPassword = pw;
-    localStorage.setItem('assignmentPassword', pw);
-    document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('appContent').style.display = 'block';
-    boot();
-  } else {
-    document.getElementById('pwError').textContent = 'Wrong password, try again.';
+  const errorEl = document.getElementById('pwError');
+  errorEl.textContent = '';
+  showLoading();
+  try {
+    const ok = await tryLogin(pw);
+    if (ok) {
+      savedPassword = pw;
+      localStorage.setItem('assignmentPassword', pw);
+      document.getElementById('loginGate').style.display = 'none';
+      document.getElementById('appContent').style.display = 'block';
+      await boot();
+    } else {
+      errorEl.textContent = 'Wrong password, try again.';
+    }
+  } catch (err) {
+    errorEl.textContent = 'Could not reach the server. Check your connection and try again.';
+  } finally {
+    hideLoading();
   }
 };
 
 (async function initLogin() {
   if (isPresentMode) return;
-  if (savedPassword && await tryLogin(savedPassword)) {
-    document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('appContent').style.display = 'block';
-    boot();
+  if (!savedPassword) return;
+  showLoading();
+  try {
+    if (await tryLogin(savedPassword)) {
+      document.getElementById('loginGate').style.display = 'none';
+      document.getElementById('appContent').style.display = 'block';
+      await boot();
+    }
+  } catch (err) {
+    // Saved password check failed to reach the server; just fall back to showing the login gate.
+  } finally {
+    hideLoading();
   }
 })();
 
@@ -682,6 +700,22 @@ function resetVocabForm() {
   for (let i = 0; i < 10; i++) addVocabWordRow();
   buildVocabSentenceRows();
 }
+
+function populateVocabForm(a) {
+  document.getElementById('vocabLabel').value = a.label || '';
+  document.getElementById('vocabTopic').value = a.topic || '';
+  document.getElementById('vocabWordsBody').innerHTML = '';
+  (a.words || []).forEach(function (w) { addVocabWordRow(w.word, w.definition, w.level, w.pos); });
+  if (!(a.words || []).length) { for (let i = 0; i < 10; i++) addVocabWordRow(); }
+  buildVocabSentenceRows();
+  (a.sentencePrompts || []).forEach(function (sp) {
+    const select = document.querySelector('.vs-select[data-level="' + sp.level + '"]');
+    if (select && Array.prototype.some.call(select.options, function (o) { return o.value === sp.word; })) {
+      select.value = sp.word;
+    }
+  });
+}
+
 document.getElementById('vocabClearFormBtn').onclick = function () {
   if (confirm("Clear the word list and sentence selections to start next week's set?")) resetVocabForm();
 };
@@ -703,7 +737,7 @@ document.getElementById('vocabPublishBtn').onclick = async function () {
     questions: JSON.stringify([]), sentencePrompts: JSON.stringify(sentencePrompts)
   });
   if (result.error) { statusEl.textContent = result.error; statusEl.style.color = '#c0392b'; return; }
-  statusEl.textContent = 'Published! The form is left as-is in case you want to double check it \u2014 use "Clear form for next week" when you\'re ready to start the next one.';
+  statusEl.textContent = 'Published! This stays here \u2014 even if you log back in later \u2014 until you use "Clear form for next week".';
   statusEl.style.color = '#1a7f37';
   await loadVocabHistory();
 };
@@ -791,12 +825,12 @@ function buildVocabHandoutInner(a) {
     'Name: ________________________&nbsp;&nbsp;Student ID: ______________</div>' +
     '<p style="font-size:13px;color:#444;margin-bottom:14px;">For each word, write its part of speech and an English definition.</p>';
   a.words.forEach(function (w, i) {
-    html += '<div style="margin-bottom:14px;">' +
+    html += '<div style="margin-bottom:22px;">' +
       '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">' +
       '<b style="font-size:14px;">' + (i + 1) + '. ' + escapeHtml(w.word) + '</b>' +
       '<span style="font-size:12px;color:#444;">Part of speech: <span style="display:inline-block;border-bottom:1px solid #333;width:130px;">&nbsp;</span></span>' +
       '</div>' +
-      '<div style="border-bottom:1px solid #333;height:16px;margin-top:6px;"></div>' +
+      '<div style="border-bottom:1px solid #333;height:22px;margin-top:16px;"></div>' +
       '</div>';
   });
   return html;
@@ -825,18 +859,24 @@ function buildVocabTestInner(a, shuffledDefs, shuffledWordBank) {
   return html;
 }
 
-function buildVocabAnswerKeyInner(a, shuffledDefs) {
+function buildVocabAnswerKeyInner(a, shuffledDefs, shuffledWordBank) {
+  const WORD_POINTS = 2, SENTENCE_POINTS = 5;
+  const sentenceCount = (a.sentencePrompts || []).length;
+  const totalPoints = a.words.length * WORD_POINTS + sentenceCount * SENTENCE_POINTS;
   let html = '<h1 style="font-size:20px;margin:0 0 4px;">' + escapeHtml(a.label) + ' \u2014 Vocabulary Check: Answer Key</h1>' +
-    '<p style="font-size:12px;color:#444;margin-bottom:14px;">Matches the question numbers on the test.</p>' +
-    '<h3 style="font-size:14px;margin:10px 0 8px;">Part 1 \u2014 Vocabulary</h3>';
+    '<div style="font-size:13px;color:#444;margin-bottom:12px;">Name: ________________________&nbsp;&nbsp;Student ID: ______________<br>Score: __________ / ' + totalPoints + '</div>' +
+    '<h3 style="font-size:14px;margin:10px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 1 \u2014 Match each definition to the correct word (' + WORD_POINTS + ' points each)</h3>' +
+    '<div style="background:#f3f3f3;border-radius:6px;padding:8px 12px;font-size:13px;margin-bottom:14px;"><b>Word bank:</b> ' + shuffledWordBank.map(escapeHtml).join(', ') + '</div>' +
+    '<p style="font-size:13px;margin-bottom:10px;">Read each definition and write the correct word from the bank above.</p>';
   shuffledDefs.forEach(function (w, i) {
-    const posLabel = w.pos ? ' <i>(' + escapeHtml(w.pos) + ')</i>' : '';
-    html += '<div style="margin-bottom:8px;font-size:13px;">' + (i + 1) + '. <b>' + escapeHtml(w.word) + '</b>' + posLabel + ' \u2014 ' + escapeHtml(w.definition) + '</div>';
+    html += '<div style="margin-bottom:10px;font-size:13px;">' + (i + 1) + '. ' + escapeHtml(w.definition) +
+      '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;width:200px;color:#1a7f37;font-weight:600;">' + escapeHtml(w.word) + '</div></div>';
   });
-  if (a.sentencePrompts && a.sentencePrompts.length) {
-    html += '<h3 style="font-size:14px;margin:14px 0 8px;">Part 2 \u2014 Original sentences</h3>';
+  if (sentenceCount) {
+    html += '<h3 style="font-size:14px;margin:14px 0 8px;border-bottom:1px solid #ccc;padding-bottom:3px;">Part 2 \u2014 Use each word in an original sentence (' + SENTENCE_POINTS + ' points each)</h3>';
     a.sentencePrompts.forEach(function (sp, i) {
-      html += '<div style="margin-bottom:8px;font-size:13px;">' + (i + 1) + '. (' + escapeHtml(sp.level) + ') ' + escapeHtml(sp.word) + ' \u2014 Varies per student (check for correct, grammatical use of the word).</div>';
+      html += '<div style="margin-bottom:10px;font-size:13px;">' + (i + 1) + '. (' + escapeHtml(sp.level) + ') <b>' + escapeHtml(sp.word) + '</b>' +
+        '<div style="border-bottom:1px solid #333;height:16px;margin-top:4px;color:#1a7f37;font-weight:600;">Varies per student</div></div>';
     });
   }
   return html;
@@ -862,7 +902,7 @@ document.getElementById('vocabDownloadPdfBtn').onclick = async function () {
     const pages = [
       buildVocabHandoutInner(a),
       buildVocabTestInner(a, shuffledDefs, shuffledWordBank),
-      buildVocabAnswerKeyInner(a, shuffledDefs)
+      buildVocabAnswerKeyInner(a, shuffledDefs, shuffledWordBank)
     ];
 
     const { jsPDF } = window.jspdf;
@@ -907,8 +947,12 @@ document.getElementById('vocabExportGradesBtn').onclick = async function () {
 };
 
 async function bootVocab() {
-  resetVocabForm();
   await loadVocabHistory();
+  if (vocabHistory.length) {
+    populateVocabForm(vocabHistory[0]);
+  } else {
+    resetVocabForm();
+  }
 }
 </script>
 </body>
