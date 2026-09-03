@@ -57,6 +57,15 @@
 <h2>Weekly Conversation Topic Portal</h2>
 
 <div class="card">
+  <h3 id="manageAssignmentsToggle" style="cursor:pointer;user-select:none;">&#9654; Manage assignments</h3>
+  <div id="manageAssignmentsWrap" style="display:none;">
+    <p style="font-size:12px;color:#666;">Delete a past week (also removes its student submissions), or clear everything to start a new year.</p>
+    <div id="manageAssignmentsList" style="margin-bottom:12px;"></div>
+    <button id="deleteAllAssignmentsBtn" style="background:#fdecea;">Delete ALL assignments</button>
+  </div>
+</div>
+
+<div class="card">
   <h3>Current assignment</h3>
   <div id="currentAssignmentBox">Loading...</div>
 </div>
@@ -66,6 +75,7 @@
   <input type="text" id="newLabel" placeholder="Label (e.g. Week 5)" style="width:100%;margin-bottom:8px;">
   <textarea id="newTopic" placeholder="Topic / instructions for students"></textarea>
   <div style="margin:8px 0;">Photos required: <input type="number" id="newPhotoCount" value="1" min="0" style="width:60px;"></div>
+  <div style="margin:8px 0;">Due date (optional): <input type="datetime-local" id="newDueDate"> <span style="font-size:12px;color:#666;">Leave blank for no deadline.</span></div>
   <div id="newFieldsList"></div>
   <button id="addFieldBtn">+ Add text field</button>
   <div style="margin-top:12px;"><button id="publishBtn">Publish new assignment</button></div>
@@ -97,13 +107,6 @@
     </div>
     <div style="flex:1;" id="presentGradeArea"></div>
   </div>
-</div>
-
-<div class="card">
-  <h3>Manage assignments</h3>
-  <p style="font-size:12px;color:#666;">Delete a past week (also removes its student submissions), or clear everything to start a new year.</p>
-  <div id="manageAssignmentsList" style="margin-bottom:12px;"></div>
-  <button id="deleteAllAssignmentsBtn" style="background:#fdecea;">Delete ALL assignments</button>
 </div>
 
 <div class="card">
@@ -379,12 +382,30 @@ document.getElementById('rubricToggle').onclick = function () {
   this.innerHTML = (open ? '&#9654; ' : '&#9660; ') + 'Edit rubrics';
 };
 
+document.getElementById('manageAssignmentsToggle').onclick = function () {
+  const wrap = document.getElementById('manageAssignmentsWrap');
+  const open = wrap.style.display !== 'none';
+  wrap.style.display = open ? 'none' : 'block';
+  this.innerHTML = (open ? '&#9654; ' : '&#9660; ') + 'Manage assignments';
+};
+
+function formatDueDate(dueDate) {
+  if (!dueDate) return null;
+  const d = new Date(dueDate);
+  if (isNaN(d.getTime())) return null;
+  return { text: d.toLocaleString(), passed: d.getTime() < Date.now() };
+}
+
 async function loadCurrentAssignment() {
   const cur = await callAction('getCurrentAssignment');
   const box = document.getElementById('currentAssignmentBox');
   if (cur.error) { box.textContent = cur.error; return; }
+  const due = formatDueDate(cur.dueDate);
+  const dueHtml = due
+    ? '<br><span style="font-size:12px;' + (due.passed ? 'color:#c0392b;font-weight:600;' : 'color:#666;') + '">Due: ' + due.text + (due.passed ? ' (closed \u2014 submissions no longer accepted)' : '') + '</span>'
+    : '<br><span style="font-size:12px;color:#666;">No due date set</span>';
   box.innerHTML = '<b>' + cur.label + '</b><br>' + cur.topic.replace(/\n/g, '<br>') +
-    '<br><span style="font-size:12px;color:#666;">' + cur.photoCount + ' photo(s), ' + cur.fieldInstructions.length + ' text field(s)</span>';
+    '<br><span style="font-size:12px;color:#666;">' + cur.photoCount + ' photo(s), ' + cur.fieldInstructions.length + ' text field(s)</span>' + dueHtml;
 }
 
 function addFieldRow(value) {
@@ -408,16 +429,19 @@ document.getElementById('publishBtn').onclick = async function () {
   const label = document.getElementById('newLabel').value.trim();
   const topic = document.getElementById('newTopic').value.trim();
   const photoCount = Number(document.getElementById('newPhotoCount').value) || 0;
+  const dueDateInput = document.getElementById('newDueDate').value;
+  const dueDate = dueDateInput ? new Date(dueDateInput).toISOString() : '';
   const fieldInputs = Array.prototype.slice.call(document.querySelectorAll('#newFieldsList input'));
   const fields = fieldInputs.map(function (i) { return i.value.trim(); }).filter(Boolean);
   const statusEl = document.getElementById('publishStatus');
   if (!label || !topic) { statusEl.textContent = 'Label and topic are required.'; statusEl.style.color = '#c0392b'; return; }
-  const result = await callAction('createAssignment', { label: label, topic: topic, photoCount: photoCount, fieldInstructions: JSON.stringify(fields) });
+  const result = await callAction('createAssignment', { label: label, topic: topic, photoCount: photoCount, fieldInstructions: JSON.stringify(fields), dueDate: dueDate });
   if (result.error) { statusEl.textContent = result.error; statusEl.style.color = '#c0392b'; return; }
   statusEl.textContent = 'Published! Students will see this the next time they log in.';
   statusEl.style.color = '#1a7f37';
   document.getElementById('newLabel').value = '';
   document.getElementById('newTopic').value = '';
+  document.getElementById('newDueDate').value = '';
   document.getElementById('newFieldsList').innerHTML = '';
   addFieldRow();
   await loadCurrentAssignment();
@@ -512,7 +536,8 @@ function renderManageAssignmentsList() {
     row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee;font-size:13px;';
     const label = document.createElement('span');
     label.style.flex = '1';
-    label.textContent = a.label;
+    const due = formatDueDate(a.dueDate);
+    label.innerHTML = escapeHtml(a.label) + (due ? ' <span style="font-size:12px;color:' + (due.passed ? '#c0392b' : '#666') + ';">(due ' + escapeHtml(due.text) + (due.passed ? ', closed' : '') + ')</span>' : '');
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete';
     delBtn.style.cssText = 'background:#fdecea;';

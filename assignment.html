@@ -13,6 +13,7 @@
   button:disabled { opacity: 0.5; cursor: default; }
   #error { color: #c0392b; margin-top: 8px; min-height: 20px; }
   #topicBox { background: #f3f3f3; border-radius: 8px; padding: 14px 16px; margin: 16px 0; white-space: pre-wrap; }
+  #dueDateNote { display:none; font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
   .field-label { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
   #status { font-size: 14px; margin-top: 10px; }
   #loadingOverlay { display:none; position:fixed; inset:0; background:rgba(255,255,255,0.6); align-items:center; justify-content:center; z-index:50; }
@@ -33,6 +34,7 @@
 <div id="formStep" style="display:none;">
   <h2 id="greeting"></h2>
   <div id="topicBox"></div>
+  <div id="dueDateNote"></div>
   <div id="prevNote" style="font-size:13px;color:#856404;background:#fff3cd;padding:8px 12px;border-radius:6px;display:none;margin-bottom:12px;"></div>
   <div id="photoInputs"></div>
   <div id="textInputs"></div>
@@ -81,6 +83,13 @@ function resizeImage(file, maxDim, quality) {
   });
 }
 
+function formatDueDate(dueDate) {
+  if (!dueDate) return null;
+  const d = new Date(dueDate);
+  if (isNaN(d.getTime())) return null;
+  return { text: d.toLocaleString(), passed: d.getTime() < Date.now() };
+}
+
 document.getElementById('findBtn').onclick = async function () {
   const id = document.getElementById('studentId').value.trim();
   const errorEl = document.getElementById('error');
@@ -107,6 +116,19 @@ async function buildForm() {
   document.getElementById('greeting').textContent = 'Hi ' + studentName;
   document.getElementById('topicBox').textContent = assignment.topic;
 
+  const due = formatDueDate(assignment.dueDate);
+  const dueNote = document.getElementById('dueDateNote');
+  if (due) {
+    dueNote.style.display = 'block';
+    dueNote.style.color = due.passed ? '#c0392b' : '#856404';
+    dueNote.style.background = due.passed ? '#fdecea' : '#fff3cd';
+    dueNote.textContent = due.passed
+      ? 'Submissions closed \u2014 the due date was ' + due.text + '.'
+      : 'Due: ' + due.text;
+  } else {
+    dueNote.style.display = 'none';
+  }
+
   const prev = await callAction('getSubmission', { weekId: assignment.weekId, studentId: studentId });
   const prevNote = document.getElementById('prevNote');
   if (prev) {
@@ -124,6 +146,7 @@ async function buildForm() {
     input.type = 'file';
     input.accept = 'image/*';
     input.className = 'photo-input';
+    if (due && due.passed) input.disabled = true;
     photoDiv.appendChild(label);
     photoDiv.appendChild(input);
   }
@@ -137,15 +160,33 @@ async function buildForm() {
     const textarea = document.createElement('textarea');
     textarea.className = 'text-input';
     if (prev && prev.responses[i]) textarea.value = prev.responses[i];
+    if (due && due.passed) textarea.disabled = true;
     textDiv.appendChild(label);
     textDiv.appendChild(textarea);
   });
+
+  const submitBtn = document.getElementById('submitBtn');
+  if (due && due.passed) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submissions closed';
+  } else {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit';
+  }
 }
 
 document.getElementById('submitBtn').onclick = async function () {
   const btn = this;
   const statusEl = document.getElementById('status');
   statusEl.textContent = '';
+
+  const due = formatDueDate(assignment.dueDate);
+  if (due && due.passed) {
+    statusEl.textContent = 'The due date for this assignment has passed. You can no longer submit.';
+    statusEl.style.color = '#c0392b';
+    return;
+  }
+
   const photoInputs = Array.prototype.slice.call(document.querySelectorAll('.photo-input'));
   const textInputs = Array.prototype.slice.call(document.querySelectorAll('.text-input'));
   const missingText = textInputs.some(function (t) { return !t.value.trim(); });
@@ -167,15 +208,23 @@ document.getElementById('submitBtn').onclick = async function () {
       weekId: assignment.weekId, studentId: studentId, studentName: studentName,
       responses: JSON.stringify(responses), photos: JSON.stringify(photoData)
     });
-    if (result.error) { statusEl.textContent = 'Submission failed: ' + result.error; statusEl.style.color = '#c0392b'; }
-    else { statusEl.textContent = 'Submitted! You can come back and resubmit any time before class.'; statusEl.style.color = '#1a7f37'; }
+    if (result.error) {
+      statusEl.textContent = 'Submission failed: ' + result.error;
+      statusEl.style.color = '#c0392b';
+      await buildForm(); // refresh in case the due date just passed
+    } else {
+      statusEl.textContent = 'Submitted! You can come back and resubmit any time before the due date.';
+      statusEl.style.color = '#1a7f37';
+      btn.disabled = false;
+      btn.textContent = 'Submit';
+    }
   } catch (err) {
     statusEl.textContent = 'Something went wrong: ' + err.message;
     statusEl.style.color = '#c0392b';
-  } finally {
-    hideLoading();
     btn.disabled = false;
     btn.textContent = 'Submit';
+  } finally {
+    hideLoading();
   }
 };
 </script>
