@@ -12,7 +12,7 @@
   h2 { font-size: 18px; }
   h3 { font-size: 15px; margin-bottom: 8px; }
   h4 { font-size: 13px; margin: 6px 0; }
-  input, textarea, select { font-size: 14px; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+  input, textarea, select { font-size: 14px; padding: 8px; border: 1px solid #bbb; border-radius: 6px; background: #f6f7f9; }
   textarea { width: 100%; min-height: 70px; }
   button { font-size: 14px; padding: 8px 14px; cursor: pointer; margin-right: 6px; margin-bottom: 6px; border: 1px solid #333; border-radius: 6px; background: #fff; }
   .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
@@ -85,8 +85,6 @@
   <h3>Review submissions</h3>
   <select id="weekPicker" style="width:100%;margin-bottom:12px;"></select>
   <div id="submissionsList"></div>
-  <button id="exportGradesBtn" style="margin-top:10px;">Export grades for this week</button>
-  <div id="exportGradesPanel" style="display:none;margin-top:10px;"></div>
 </div>
 
 <div class="card">
@@ -99,6 +97,21 @@
     </div>
     <div style="flex:1;" id="presentGradeArea"></div>
   </div>
+</div>
+
+<div class="card">
+  <h3>Manage assignments</h3>
+  <p style="font-size:12px;color:#666;">Delete a past week (also removes its student submissions), or clear everything to start a new year.</p>
+  <div id="manageAssignmentsList" style="margin-bottom:12px;"></div>
+  <button id="deleteAllAssignmentsBtn" style="background:#fdecea;">Delete ALL assignments</button>
+</div>
+
+<div class="card">
+  <h3>Export grades</h3>
+  <p style="font-size:12px;color:#666;">Exports the week selected above in "Review submissions" \u2014 make sure both homework and presentation scores are entered first.</p>
+  <div id="exportGradesWeekLabel" style="font-size:13px;font-weight:600;margin-bottom:8px;"></div>
+  <button id="exportGradesBtn">Export grades for this week</button>
+  <div id="exportGradesPanel" style="display:none;margin-top:10px;"></div>
 </div>
 
 </div><!-- /topicPanel -->
@@ -327,6 +340,9 @@ async function boot() {
 
   history = historyRes;
   populateWeekPickerOptions(document.getElementById('weekPicker'), history);
+  if (history.length) selectedWeekId = history[0].weekId;
+  renderManageAssignmentsList();
+  updateExportGradesWeekLabel();
 
   vocabHistory = vocabHistoryRes;
   const vocabPicker = document.getElementById('vocabWeekPicker');
@@ -344,7 +360,6 @@ async function boot() {
   // but not on each other, so they can still run in parallel as a second wave.
   const wave2 = [];
   if (history.length) {
-    selectedWeekId = history[0].weekId;
     wave2.push(loadSubmissions());
   }
   if (vocabHistory.length) {
@@ -473,9 +488,53 @@ document.getElementById('saveRubricsBtn').onclick = async function () {
 async function loadHistory() {
   history = await callAction('getAssignmentHistory');
   populateWeekPickerOptions(document.getElementById('weekPicker'), history);
+  renderManageAssignmentsList();
   if (history.length) { selectedWeekId = history[0].weekId; await loadSubmissions(); }
+  updateExportGradesWeekLabel();
 }
-document.getElementById('weekPicker').onchange = async function () { selectedWeekId = this.value; await loadSubmissions(); };
+document.getElementById('weekPicker').onchange = async function () {
+  selectedWeekId = this.value;
+  updateExportGradesWeekLabel();
+  await loadSubmissions();
+};
+
+function updateExportGradesWeekLabel() {
+  const a = history.find(function (h) { return h.weekId === selectedWeekId; });
+  document.getElementById('exportGradesWeekLabel').textContent = a ? 'Exporting: ' + a.label : '';
+}
+
+function renderManageAssignmentsList() {
+  const container = document.getElementById('manageAssignmentsList');
+  container.innerHTML = '';
+  if (!history.length) { container.textContent = 'No assignments yet.'; return; }
+  history.forEach(function (a) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee;font-size:13px;';
+    const label = document.createElement('span');
+    label.style.flex = '1';
+    label.textContent = a.label;
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete';
+    delBtn.style.cssText = 'background:#fdecea;';
+    delBtn.onclick = async function () {
+      if (!confirm('Delete "' + a.label + '" permanently? This also removes any student submissions for that week.')) return;
+      await callAction('deleteAssignment', { weekId: a.weekId });
+      await loadHistory();
+      await loadCurrentAssignment();
+    };
+    row.appendChild(label);
+    row.appendChild(delBtn);
+    container.appendChild(row);
+  });
+}
+
+document.getElementById('deleteAllAssignmentsBtn').onclick = async function () {
+  const typed = prompt('This permanently deletes every assignment and every student submission. Type DELETE to confirm.');
+  if (typed !== 'DELETE') return;
+  await callAction('deleteAllAssignments');
+  await loadHistory();
+  await loadCurrentAssignment();
+};
 
 function renderRubricBlock(type, submission, weekId, container) {
   const rubricCriteria = rubrics[type] || [];
