@@ -278,6 +278,7 @@ async function moveSeat(from, to) { applyStateResponse(await callAction('moveSea
 
 let manualMove = false;
 let gradingMode = false;
+let printMode = false;
 let gradingSelectedId = null;
 let pendingScores = {};
 let gradingDirty = false;
@@ -473,10 +474,14 @@ document.getElementById('downloadPdfBtn').onclick = async function () {
   btn.textContent = 'Preparing PDF...';
   showLoading();
   try {
+    printMode = true;
+    render();
     scene.style.transform = 'scale(1)';
     await new Promise(function (r) { setTimeout(r, 60); });
     const canvas = await html2canvas(scene, { scale: 3, backgroundColor: '#ffffff' });
     scene.style.transform = prevTransform;
+    printMode = false;
+    render();
     fitGrid();
 
     const imgW = canvas.width, imgH = canvas.height;
@@ -496,6 +501,8 @@ document.getElementById('downloadPdfBtn').onclick = async function () {
     pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, drawW, drawH);
     pdf.save('seating-chart.pdf');
   } catch (err) {
+    printMode = false;
+    render();
     scene.style.transform = prevTransform;
     fitGrid();
     alert('Could not generate the PDF: ' + err.message);
@@ -522,9 +529,9 @@ function buildChip(id) {
   const isSelected = gradingMode && gradingSelectedId === id;
   const filled = pipCount(id);
   el.style.cssText = 'width:78px;height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2px;overflow:hidden;flex-shrink:0;';
-  el.style.background = isAbsent ? '#eee' : '#0c447c';
-  el.style.color = isAbsent ? '#888' : '#e6f1fb';
-  el.style.border = isSelected ? '4px solid #9333ea' : (isPicked ? '4px solid #16a34a' : '2px solid transparent');
+  el.style.background = isAbsent ? '#eee' : (printMode ? '#ffffff' : '#0c447c');
+  el.style.color = isAbsent ? '#888' : (printMode ? '#000000' : '#e6f1fb');
+  el.style.border = isSelected ? '4px solid #9333ea' : (isPicked ? '4px solid #16a34a' : (printMode && !isAbsent ? '2px solid #0c447c' : '2px solid transparent'));
   const nameDiv = document.createElement('div');
   nameDiv.style.cssText = 'cursor:pointer;';
   const badge = STATUS_BADGE[statusFor(id)];
