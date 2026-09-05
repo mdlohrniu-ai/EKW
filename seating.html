@@ -51,6 +51,7 @@
   <button id="exportBtn">Export attendance</button>
   <button id="resetBtn" style="background:#fdecea;">Reset for next class</button>
   <button id="gradingModeBtn" style="background:#f3e8ff;">Grading Mode</button>
+  <button id="teacherViewBtn" style="background:#e0f2fe;">Teacher view</button>
   <button id="downloadPdfBtn">Download seating chart</button>
 </div>
 <div id="gradingPanel" style="display:none;border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin-bottom:12px;background:#faf7ff;">
@@ -83,7 +84,7 @@
 </div>
 <div id="gridWrapper"><div id="scene">
   <div id="teacherRow" style="display:flex;justify-content:center;margin-bottom:14px;">
-    <div style="background:#8a8a8a;color:#fff;font-weight:600;font-size:11px;width:78px;height:70px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;">Teacher</div>
+    <div id="teacherLabel" style="background:#8a8a8a;color:#fff;font-weight:600;font-size:11px;width:78px;height:70px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;">Teacher</div>
   </div>
   <div id="grid"></div>
 </div></div>
@@ -279,6 +280,7 @@ async function moveSeat(from, to) { applyStateResponse(await callAction('moveSea
 let manualMove = false;
 let gradingMode = false;
 let printMode = false;
+let teacherView = false;
 let gradingSelectedId = null;
 let pendingScores = {};
 let gradingDirty = false;
@@ -476,7 +478,7 @@ document.getElementById('downloadPdfBtn').onclick = async function () {
   try {
     printMode = true;
     render();
-    scene.style.transform = 'scale(1)';
+    scene.style.transform = baseTransform(1);
     await new Promise(function (r) { setTimeout(r, 60); });
     const canvas = await html2canvas(scene, { scale: 3, backgroundColor: '#ffffff' });
     scene.style.transform = prevTransform;
@@ -533,7 +535,7 @@ function buildChip(id) {
   el.style.color = isAbsent ? '#888' : (printMode ? '#000000' : '#e6f1fb');
   el.style.border = isSelected ? '4px solid #9333ea' : (isPicked ? '4px solid #16a34a' : (printMode && !isAbsent ? '2px solid #0c447c' : '2px solid transparent'));
   const nameDiv = document.createElement('div');
-  nameDiv.style.cssText = 'cursor:pointer;';
+  nameDiv.style.cssText = 'cursor:pointer;' + (teacherView ? 'transform:rotate(180deg);' : '');
   const badge = STATUS_BADGE[statusFor(id)];
   const gradingBadge = gradingMode ? '<div style="font-size:9px;font-weight:700;opacity:0.9;">' + gradingTotal(id) + ' pts</div>' : '';
   nameDiv.innerHTML = '<div style="font-size:9px;opacity:0.8;">' + id + '</div><div style="font-size:11px;font-weight:600;">' + rosterName(id) + (isAbsent ? ' out' : '') + '</div>' + (badge ? '<div style="font-size:9px;opacity:0.85;">' + badge + '</div>' : '') + gradingBadge;
@@ -603,18 +605,22 @@ function toggleBtn(p, isBlocked) {
   return b;
 }
 
+function baseTransform(scale) {
+  return 'scale(' + scale + ')' + (teacherView ? ' rotate(180deg)' : '');
+}
+
 function fitGrid() {
   const scene = document.getElementById('scene');
   const wrapper = document.getElementById('gridWrapper');
+  scene.style.transformOrigin = teacherView ? 'center center' : 'top center';
   if (gradingMode) {
-    scene.style.transform = 'scale(1)';
+    scene.style.transform = baseTransform(1);
     wrapper.style.overflow = 'auto';
-    wrapper.style.alignItems = 'flex-start';
-    wrapper.style.justifyContent = 'flex-start';
+    wrapper.style.alignItems = teacherView ? 'center' : 'flex-start';
+    wrapper.style.justifyContent = teacherView ? 'center' : 'flex-start';
     return;
   }
-  scene.style.transform = 'scale(1)';
-  scene.style.transformOrigin = 'top center';
+  scene.style.transform = baseTransform(1);
   const naturalWidth = scene.scrollWidth;
   const naturalHeight = scene.scrollHeight;
   if (!naturalWidth || !naturalHeight) return;
@@ -630,11 +636,25 @@ function fitGrid() {
     scale = fitScale;
     wrapper.style.overflow = 'hidden';
   }
-  wrapper.style.alignItems = 'flex-start';
+  wrapper.style.alignItems = teacherView ? 'center' : 'flex-start';
   wrapper.style.justifyContent = 'center';
-  scene.style.transform = 'scale(' + scale + ')';
+  scene.style.transform = baseTransform(scale);
 }
 window.addEventListener('resize', fitGrid);
+
+function updateTeacherViewUI() {
+  const label = document.getElementById('teacherLabel');
+  if (label) label.style.transform = teacherView ? 'rotate(180deg)' : 'none';
+  const btn = document.getElementById('teacherViewBtn');
+  if (btn) btn.style.background = teacherView ? '#7dd3fc' : '#e0f2fe';
+}
+document.getElementById('teacherViewBtn').onclick = function () {
+  teacherView = !teacherView;
+  updateTeacherViewUI();
+  render();
+  fitGrid();
+};
+
 
 function render() {
   if (manualMove) { renderManualGrid(); return; }
