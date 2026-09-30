@@ -127,6 +127,7 @@
   <p style="font-size:13px;color:#666;">Type this week's topic and generate the prompt. Paste it into Claude (or any AI chat) in a new conversation \u2014 it replies with a plain list. Copy that list straight back into the box below and click Fill table.</p>
   <input type="text" id="vocabAiTopic" placeholder="This week's topic (e.g. Talking about interests)" style="width:100%;margin-bottom:8px;">
   <button id="vocabGenPromptBtn" type="button">Generate prompt</button>
+  <span id="vocabPromptModeNote" style="font-size:12px;color:#666;margin-left:8px;"></span>
   <textarea id="vocabAiPromptBox" readonly style="width:100%;min-height:140px;display:none;margin-top:8px;font-size:13px;"></textarea>
   <button id="vocabCopyPromptBtn" type="button" style="display:none;margin-top:6px;">Copy prompt</button>
 
@@ -140,6 +141,12 @@
   <h3>Create this week's vocabulary set</h3>
   <input type="text" id="vocabLabel" placeholder="Label (e.g. Week 5 - Talking about interests)" style="width:100%;margin-bottom:8px;">
   <input type="text" id="vocabTopic" placeholder="Topic shown on the handout (optional)" style="width:100%;margin-bottom:12px;">
+
+  <div style="margin-bottom:12px;">
+    <span style="font-size:13px;font-weight:600;margin-right:10px;">Words this week:</span>
+    <label style="margin-right:14px;font-size:13px;"><input type="radio" name="vocabWordCount" value="5" checked> 5 words <span style="color:#666;">(1 A2, 2 B1, 2 B2 — about 20–30 min)</span></label>
+    <label style="font-size:13px;"><input type="radio" name="vocabWordCount" value="10"> 10 words <span style="color:#666;">(3 A2, 5 B1, 2 B2)</span></label>
+  </div>
 
   <table id="vocabWordsTable" style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;">
     <thead><tr>
@@ -697,9 +704,37 @@ function shuffleArray(arr) {
   return a;
 }
 
-function buildVocabAiPrompt(topic) {
+function getVocabWordCountMode() {
+  const checked = document.querySelector('input[name="vocabWordCount"]:checked');
+  return checked ? checked.value : '5';
+}
+
+function setVocabWordCountMode(mode) {
+  const val = (String(mode) === '10') ? '10' : '5';
+  const radio = document.querySelector('input[name="vocabWordCount"][value="' + val + '"]');
+  if (radio) radio.checked = true;
+  updateVocabPromptModeNote();
+}
+
+function updateVocabPromptModeNote() {
+  const note = document.getElementById('vocabPromptModeNote');
+  if (note) note.textContent = 'Using ' + (getVocabWordCountMode() === '10' ? '10-word' : '5-word') + ' mode (set below)';
+}
+
+function syncVocabWordRowCount() {
+  const target = getVocabWordCountMode() === '10' ? 10 : 5;
+  const tbody = document.getElementById('vocabWordsBody');
+  let rows = tbody.querySelectorAll('tr').length;
+  while (rows < target) { addVocabWordRow(); rows++; }
+}
+
+function buildVocabAiPrompt(topic, wordCount) {
+  const n = (String(wordCount) === '10') ? 10 : 5;
+  const split = n === 10
+    ? '3 at CEFR level A2, 5 at B1, and 2 at B2'
+    : '1 at CEFR level A2, 2 at B1, and 2 at B2';
   return 'I\'m teaching an intermediate English conversation class (EFL). This week\'s topic is: "' + topic + '".\n\n' +
-    'Give me exactly 10 vocabulary items relevant to this topic \u2014 a mix of nouns, verbs, adjectives, adverbs, and idiomatic phrases where natural \u2014 split into 3 at CEFR level A2, 5 at B1, and 2 at B2. For each word, write a short, student-friendly English definition (one sentence, no jargon, written for an intermediate learner).\n\n' +
+    'Give me exactly ' + n + ' vocabulary items relevant to this topic \u2014 a mix of nouns, verbs, adjectives, adverbs, and idiomatic phrases where natural \u2014 split into ' + split + '. For each word, write a short, student-friendly English definition (one sentence, no jargon, written for an intermediate learner).\n\n' +
     'Reply with ONLY the list below, one line per word, no numbering, no headers, no commentary before or after \u2014 just this exact pipe-separated format so I can paste it straight into my tool:\n\n' +
     'word | part of speech | CEFR level | definition\n\n' +
     'Example line:\n' +
@@ -743,10 +778,15 @@ document.getElementById('vocabFillFromPasteBtn').onclick = function () {
 document.getElementById('vocabGenPromptBtn').onclick = function () {
   const topic = document.getElementById('vocabAiTopic').value.trim() || '[the topic]';
   const box = document.getElementById('vocabAiPromptBox');
-  box.value = buildVocabAiPrompt(topic);
+  box.value = buildVocabAiPrompt(topic, getVocabWordCountMode());
   box.style.display = 'block';
   document.getElementById('vocabCopyPromptBtn').style.display = 'inline-block';
 };
+
+document.querySelectorAll('input[name="vocabWordCount"]').forEach(function (r) {
+  r.onchange = function () { syncVocabWordRowCount(); updateVocabPromptModeNote(); };
+});
+updateVocabPromptModeNote();
 
 document.getElementById('vocabCopyPromptBtn').onclick = function () {
   const box = document.getElementById('vocabAiPromptBox');
@@ -834,17 +874,20 @@ function buildVocabSentenceRows() {
 function resetVocabForm() {
   document.getElementById('vocabLabel').value = '';
   document.getElementById('vocabTopic').value = '';
+  setVocabWordCountMode('5');
   document.getElementById('vocabWordsBody').innerHTML = '';
-  for (let i = 0; i < 10; i++) addVocabWordRow();
+  syncVocabWordRowCount();
   buildVocabSentenceRows();
 }
 
 function populateVocabForm(a) {
   document.getElementById('vocabLabel').value = a.label || '';
   document.getElementById('vocabTopic').value = a.topic || '';
+  const wordCount = (a.words || []).length;
+  setVocabWordCountMode(wordCount > 0 && wordCount <= 5 ? '5' : '10');
   document.getElementById('vocabWordsBody').innerHTML = '';
   (a.words || []).forEach(function (w) { addVocabWordRow(w.word, w.definition, w.level, w.pos); });
-  if (!(a.words || []).length) { for (let i = 0; i < 10; i++) addVocabWordRow(); }
+  if (!wordCount) { syncVocabWordRowCount(); }
   buildVocabSentenceRows();
   (a.sentencePrompts || []).forEach(function (sp) {
     const select = document.querySelector('.vs-select[data-level="' + sp.level + '"]');
